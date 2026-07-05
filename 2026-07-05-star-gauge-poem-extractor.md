@@ -712,15 +712,18 @@ test('canExtract true only at multiples of 4; linesNeeded counts the gap', () =>
   const s = createSelection(fakeGrid());
   s.pickStart({ row: 0, col: 0 });
   assert.equal(s.linesNeeded(), 4);
+  // Straight east run along row 0 for the first 4 lines (never nears the
+  // centre), then turn south for the 5th — avoids the centre-collision that
+  // an alternating east/south path from (0,0) would hit exactly on line 5.
   s.addLine({ dr: 0, dc: 1 });  // 1
-  s.addLine({ dr: 1, dc: 0 });  // 2
+  s.addLine({ dr: 0, dc: 1 });  // 2
   s.addLine({ dr: 0, dc: 1 });  // 3
   assert.equal(s.canExtract(), false);
   assert.equal(s.linesNeeded(), 1);
-  s.addLine({ dr: 1, dc: 0 });  // 4
+  s.addLine({ dr: 0, dc: 1 });  // 4
   assert.equal(s.canExtract(), true);
   assert.equal(s.linesNeeded(), 0);
-  s.addLine({ dr: 0, dc: 1 });  // 5
+  s.addLine({ dr: 1, dc: 0 });  // 5
   assert.equal(s.canExtract(), false);
   assert.equal(s.linesNeeded(), 3);
 });
