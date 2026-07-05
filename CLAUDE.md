@@ -12,7 +12,7 @@ and once they have a full quatrain (≥4 lines, a multiple of 4) the app:
 2. builds a **copy-to-clipboard LLM prompt** embedding that poem, and
 3. shows a dedicated **English-poem area** where the translation will appear.
 
-The full plan lives in `docs/superpowers/plans/2026-07-05-star-gauge-poem-extractor.md`.
+The full plan lives in `2026-07-05-star-gauge-poem-extractor.md` (project root).
 Read it before implementing.
 
 ## The intricacy of the Chinese here — READ THIS
