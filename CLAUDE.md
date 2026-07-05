@@ -5,8 +5,9 @@
 An interactive, single-page **static website** for exploring Su Hui's 4th-century
 reversible poem **璇玑圖 (Xuanji Tu / "Star Gauge")**. The user sees the authentic
 **29×29 grid of 841 traditional-Chinese characters**, traces a continuous route
-through it to build a poem (straight 7-character lines, connected end-to-start),
-and once they have a full quatrain (≥4 lines, a multiple of 4) the app:
+through it with an **8-way compass control** (straight 7-character lines,
+pivoting at each junction), and once they have a full quatrain (≥4 lines, a
+multiple of 4) the app:
 
 1. assembles the extracted **Chinese** poem,
 2. builds a **copy-to-clipboard LLM prompt** embedding that poem, and
@@ -23,6 +24,17 @@ with care:
 - **Traditional characters, NOT simplified.** The original brocade is in
   traditional Chinese. Do **not** run any traditional→simplified conversion. `璇
   玑圖` stays traditional. Keep every source file **UTF-8**.
+- **The grid data is already sourced and verified.** The 841 characters are
+  embedded in the plan (Task 2), transcribed from Chinese Wikisource
+  (zh.wikisource.org/wiki/璇璣圖) and programmatically checked (29×29, 心 at
+  [14][14]). **Never re-fetch, re-type, or "correct" a character** — editions
+  genuinely differ in a few cells (e.g. 窕窈/窈窕, 泉情/泉清, 冰/水, 妤恃/好恃);
+  Wikisource is canonical for this project and variants are not errors.
+- **Pivot rule — no repeated boundary characters.** The first line includes its
+  start cell (start + 6 steps). Each later line pivots at the previous line's
+  last cell (the junction) and its 7 characters begin **one step onward** in the
+  new direction. Line N's last char and line N+1's first char are different
+  cells; the extracted poem never repeats a character across a line boundary.
 - **841 characters = 840 + 1.** The original grid held 840 characters; a central
   **心 ("heart")** was added later. So `GRID` is 29×29 and `GRID[14][14] === '心'`
   (0-indexed center; the 15th row and column).
@@ -56,8 +68,15 @@ with care:
   button disabled. It must consume **zero** API credits until deliberately turned
   on. Never hard-code or commit an API key.
 - **No build step, no framework.** Vanilla HTML/CSS/JS with small ES modules.
+  (ES modules require serving over HTTP — `file://` shows a blank page.)
 - **Region-specific reading rules are out of scope for v1** (the 3-char "blue
   corner" mode and the circular 112-char border poem are separate future specs).
+- **Fully responsive.** Grid pans inside a scrollable viewport; compass buttons
+  ≥44px on coarse pointers; single-column layout on small screens. Font stack
+  must include Windows CJK fonts: `"Noto Serif TC", "PMingLiU", "MingLiU",
+  "Microsoft JhengHei", "SimSun", serif`.
+- **Visual direction: silk brocade.** Warm silk ground, ink serif glyphs,
+  vermillion 心/junction, gold thread for the traced path.
 
 ## Conventions
 
