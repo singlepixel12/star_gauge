@@ -5,9 +5,10 @@
   --silk-deep: #eadbb9;
   --weave: #d6c194;
   --ink: #2b2118;
-  --faded: #7a6a52;
+  --faded: #5f5140;
   --vermillion: #b5402c;
   --gold: #a87b1e;
+  --gold-ink: #7a5a10;
   --gold-soft: #ecd692;
   --gold-glow: #f6e7b0;
 }
@@ -72,6 +73,7 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
   font-size: var(--glyph); line-height: 1;
   cursor: pointer; user-select: none;
+  scroll-margin-top: 72px;
 }
 .cell.center { color: var(--vermillion); font-weight: 700; cursor: default; }
 .cell.in-line { background: var(--gold-soft); }
@@ -125,7 +127,7 @@ footer.credits {
   border-top: 1px solid var(--weave);
   color: var(--faded); font-size: .8rem;
 }
-footer.credits a { color: var(--gold); }
+footer.credits a { color: var(--gold-ink); }
 
 /* Stylized colour-region tints (visible only when body has .show-regions) */
 .show-regions .cell.r-center     { background: #f0d5cd; }
