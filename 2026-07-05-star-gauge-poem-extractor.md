@@ -93,6 +93,15 @@ node_modules/
   <header>
     <h1>璇璣圖 <span class="latin">· Star Gauge</span></h1>
     <p class="tagline">Trace a thread through Su Hui's woven poem — seven characters a line, four lines a quatrain.</p>
+    <details class="about">
+      <summary>About this poem</summary>
+      <p>In the 4th century, Su Hui (蘇蕙) wove these 841 characters in five
+      colours of silk for her husband Dou Tao (竇滔), exiled far away and
+      drifting toward another. Read in any direction — across, down, diagonally,
+      forwards or backwards — the grid conceals nearly three thousand poems of
+      longing, separation and constancy. The centre character, 心
+      ("heart"), belongs to every reading and to none.</p>
+    </details>
   </header>
 
   <main>
@@ -130,6 +139,11 @@ node_modules/
       </div>
     </section>
   </main>
+
+  <footer class="credits">
+    Text: <a href="https://zh.wikisource.org/wiki/%E7%92%87%E7%8E%91%E5%9C%96">Chinese Wikisource, 璇璣圖</a>
+    · Background: <a href="https://en.wikipedia.org/wiki/Star_Gauge">Wikipedia, Star Gauge</a>
+  </footer>
 
   <script type="module" src="src/app.js"></script>
 </body>
@@ -169,6 +183,9 @@ header h1 {
 }
 header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
 .tagline { color: var(--faded); margin: .3rem 0 1rem; font-style: italic; }
+.about { margin: 0 0 1rem; max-width: 62ch; color: var(--faded); }
+.about summary { cursor: pointer; color: var(--ink); font-style: italic; }
+.about p { margin: .5rem 0 0; line-height: 1.55; }
 
 .controls {
   position: sticky; top: 0; z-index: 20;
@@ -257,6 +274,13 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   background: var(--silk-deep); border: 1px solid var(--gold); border-radius: 4px;
 }
 .card button:disabled { opacity: .4; cursor: not-allowed; }
+
+footer.credits {
+  margin-top: 2rem; padding-top: .75rem;
+  border-top: 1px solid var(--weave);
+  color: var(--faded); font-size: .8rem;
+}
+footer.credits a { color: var(--gold); }
 
 /* Stylized colour-region tints (visible only when body has .show-regions) */
 .show-regions .cell.r-center     { background: #f0d5cd; }
@@ -826,6 +850,8 @@ test('prompt includes every line, counts, and key instructions', () => {
   assert.ok(p.includes('1 quatrain'), 'singular quatrain');
   assert.ok(p.includes('traditional'), 'warns the model the text is traditional Chinese');
   assert.ok(/line for line|line-for-line/i.test(p), 'asks for per-line mapping');
+  assert.ok(p.includes('Su Hui'), 'names the poet');
+  assert.ok(/longing|separation|constancy/.test(p), 'carries the backstory themes');
 });
 
 test('prompt pluralises quatrains for 8 lines', () => {
@@ -852,8 +878,10 @@ export function buildPrompt(lines) {
   return [
     `The lines below were extracted from Su Hui's 4th-century reversible poem`,
     `"Star Gauge" (璇璣圖) by tracing a path through its 29×29 character grid.`,
-    `The characters are traditional Chinese. Each line is exactly 7 characters;`,
-    `the poem is ${n} lines (${q}).`,
+    `Su Hui wove the original into silk for her husband Dou Tao, exiled far`,
+    `away; its themes are longing, separation, and constancy — let that colour`,
+    `your reading. The characters are traditional Chinese. Each line is exactly`,
+    `7 characters; the poem is ${n} lines (${q}).`,
     ``,
     `Because the path turns freely through the grid, the lines may read obliquely`,
     `or fragmentarily — that is part of the form. Do not "correct" the text.`,
@@ -1186,6 +1214,8 @@ Verify:
 - Undo steps back one line (compass follows); a final Undo clears the start;
   Reset clears all.
 - Colour-regions toggle tints; path highlights still visible over tints.
+- "About this poem" expands/collapses; credits footer links to Wikisource and
+  Wikipedia.
 - Translate button disabled; Network tab shows zero requests to openai.com.
 
 - [ ] **Step 3: Manual verification — mobile (~390px)**
@@ -1279,3 +1309,23 @@ git commit -m "docs: add README and confirm full test suite passes"
 - **Hard constraint honoured:** no live OpenAI call anywhere; `LLM_ENABLED =
   false`; Translate button disabled; Task 8 verification includes checking the
   Network tab.
+
+---
+
+## Future ideas (NOT in v1 — do not build these)
+
+- **Reverse reading:** a button that flips the extracted poem (lines in reverse
+  order and/or each line read backwards) — the poem is famously reversible and
+  the geometry already supports both directions.
+- **Poem-counter flavour text:** "2,848 quatrains hide in this grid — you found
+  one."
+- **Compare with a human translator:** link David Hinton's 2012 English
+  rendering, *Star Gauge*.
+- **Styling prior art:** Jen Bervin's *Su Hui's Reversible Poem* project and the
+  interactive version linked from the Wikipedia article.
+- **Rhyme highlighting** (平水韻 rhyme groups) — genuinely hard; needs its own
+  spec.
+- **Region-specific reading grammars** (blue 3-char mode; circular 112-char
+  border poem) — each its own spec.
+- **Live OpenAI translation:** flip `LLM_ENABLED`, add key handling per the note
+  in `src/app.js`.
