@@ -1,5 +1,5 @@
 // src/app.js — DOM wiring.
-import { GRID, CENTER } from './grid-data.js';
+import { GRID } from './grid-data.js';
 import { DIRECTIONS, isCenter, lineCells, validDirectionsFrom } from './geometry.js';
 import { regionAt } from './regions.js';
 import { createSelection } from './selection.js';
