@@ -12,6 +12,8 @@ import { buildPrompt } from './prompt.js';
 //      and writes the result into #poem-en.
 const LLM_ENABLED = false;
 
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 const selection = createSelection(GRID);
 
 const gridEl = document.getElementById('grid');
@@ -51,6 +53,7 @@ function buildGrid() {
 // Compass: 3×3 grid — 8 direction buttons around a hole showing the junction.
 // Grid order: nw n ne / w hole e / sw s se.
 function buildCompass() {
+  const DIR_WORDS = { n: 'north', ne: 'north-east', e: 'east', se: 'south-east', s: 'south', sw: 'south-west', w: 'west', nw: 'north-west' };
   const layout = ['nw', 'n', 'ne', 'w', null, 'e', 'sw', 's', 'se'];
   for (const id of layout) {
     if (id === null) {
@@ -63,7 +66,7 @@ function buildCompass() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = dir.arrow;
-    btn.setAttribute('aria-label', `extend line ${id}`);
+    btn.setAttribute('aria-label', `extend line ${DIR_WORDS[id]}`);
     btn.addEventListener('click', () => { clearPreview(); selection.addLine(dir); render(); });
     btn.addEventListener('mouseenter', () => previewLine(dir));
     btn.addEventListener('focus', () => previewLine(dir));
@@ -100,7 +103,7 @@ function positionCompass(anchor) {
   const cy = cell.offsetTop + cell.offsetHeight / 2;
   compassEl.style.left = `${cx - compassEl.offsetWidth / 2}px`;
   compassEl.style.top = `${cy - compassEl.offsetHeight / 2}px`;
-  cell.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  cell.scrollIntoView({ block: 'center', inline: 'center', behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
 }
 
 function render() {

@@ -13,6 +13,7 @@
   --gold-glow: #f6e7b0;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   padding: 1.25rem;
