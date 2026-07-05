@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>璇璣圖 · Star Gauge</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>璇璣圖 <span class="latin">· Star Gauge</span></h1>
+    <p class="tagline">Trace a thread through Su Hui's woven poem — seven characters a line, four lines a quatrain.</p>
+    <details class="about">
+      <summary>About this poem</summary>
+      <p>In the 4th century, Su Hui (蘇蕙) wove these 841 characters in five
+      colours of silk for her husband Dou Tao (竇滔), exiled far away and
+      drifting toward another. Read in any direction — across, down, diagonally,
+      forwards or backwards — the grid conceals nearly three thousand poems of
+      longing, separation and constancy. The centre character, 心
+      ("heart"), belongs to every reading and to none.</p>
+    </details>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="controls">
+      <button id="undo" type="button" disabled>Undo line</button>
+      <button id="reset" type="button" disabled>Reset</button>
+      <label class="toggle"><input id="regions-toggle" type="checkbox" /> Colour regions <span class="hint">(stylized)</span></label>
+      <span id="progress" class="progress" role="status">Tap a character to begin.</span>
+    </section>
+
+    <section class="grid-viewport" aria-label="poem grid">
+      <div class="grid-frame">
+        <div id="grid" class="grid"></div>
+        <div id="compass" class="compass" hidden></div>
+      </div>
+    </section>
+
+    <section class="output" id="output" hidden>
+      <div class="card poem-chinese">
+        <h2>Poem so far</h2>
+        <pre id="poem-zh" class="poem"></pre>
+      </div>
+      <div class="card prompt-block">
+        <h2>Translation prompt</h2>
+        <p id="prompt-status" class="hint"></p>
+        <textarea id="prompt-text" class="prompt-text" readonly rows="9" aria-label="LLM translation prompt"></textarea>
+        <button id="copy-prompt" type="button" disabled>Copy translation prompt</button>
+      </div>
+      <div class="card english-block">
+        <h2>English poem</h2>
+        <textarea id="poem-en" class="poem-en" rows="9"
+          placeholder="The English translation will appear here — paste it, or wire up the OpenAI call."></textarea>
+        <button id="translate" type="button" disabled
+          title="OpenAI integration is scaffolded but disabled in v1">Translate with OpenAI (disabled)</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="credits">
+    Text: <a href="https://zh.wikisource.org/wiki/%E7%92%87%E7%8E%91%E5%9C%96">Chinese Wikisource, 璇璣圖</a>
+    · Background: <a href="https://en.wikipedia.org/wiki/Star_Gauge">Wikipedia, Star Gauge</a>
+  </footer>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

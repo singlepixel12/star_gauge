@@ -1,0 +1,151 @@
+:root {
+  --cell: 34px;
+  --glyph: 20px;
+  --silk: #f3e8d0;
+  --silk-deep: #eadbb9;
+  --weave: #d6c194;
+  --ink: #2b2118;
+  --faded: #7a6a52;
+  --vermillion: #b5402c;
+  --gold: #a87b1e;
+  --gold-soft: #ecd692;
+  --gold-glow: #f6e7b0;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  padding: 1.25rem;
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at top, #f8efdc 0%, var(--silk) 55%, var(--silk-deep) 100%);
+  font-family: Georgia, "Times New Roman", serif;
+}
+header h1 {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: .1em;
+  font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
+}
+header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
+.tagline { color: var(--faded); margin: .3rem 0 1rem; font-style: italic; }
+.about { margin: 0 0 1rem; max-width: 62ch; color: var(--faded); }
+.about summary { cursor: pointer; color: var(--ink); font-style: italic; }
+.about p { margin: .5rem 0 0; line-height: 1.55; }
+
+.controls {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+  padding: .5rem 0; background: var(--silk);
+  border-bottom: 1px solid var(--weave);
+  margin-bottom: .75rem;
+}
+.controls button {
+  font: inherit; padding: .35rem .8rem; cursor: pointer;
+  background: var(--silk-deep); color: var(--ink);
+  border: 1px solid var(--gold); border-radius: 4px;
+}
+.controls button:disabled { opacity: .4; cursor: not-allowed; }
+.controls .hint, .hint { color: var(--faded); font-size: .8em; }
+.progress { color: var(--faded); font-size: .9rem; }
+
+/* Grid inside a pannable viewport; frame padding leaves room for the compass at edges */
+.grid-viewport {
+  overflow: auto;
+  max-height: 74vh;
+  border: 3px double var(--gold);
+  border-radius: 6px;
+  background: var(--silk-deep);
+  box-shadow: inset 0 0 24px rgba(122, 106, 82, .25);
+}
+.grid-frame { position: relative; width: max-content; padding: 56px; margin: 0 auto; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(29, var(--cell));
+  grid-template-rows: repeat(29, var(--cell));
+  gap: 1px;
+  background: var(--weave);
+  border: 1px solid var(--weave);
+}
+.cell {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--silk);
+  font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
+  font-size: var(--glyph); line-height: 1;
+  cursor: pointer; user-select: none;
+}
+.cell.center { color: var(--vermillion); font-weight: 700; cursor: default; }
+.cell.in-line { background: var(--gold-soft); }
+.cell.junction { outline: 2px solid var(--vermillion); outline-offset: -2px; z-index: 1; }
+.cell.preview { background: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
+
+/* 8-way compass, absolutely positioned over the junction cell */
+.compass {
+  position: absolute; z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(3, var(--compass-btn, 38px));
+  grid-template-rows: repeat(3, var(--compass-btn, 38px));
+  gap: 2px;
+  pointer-events: none; /* the hole in the middle lets the junction show through */
+}
+.compass button {
+  pointer-events: auto;
+  font-size: 1rem; line-height: 1; cursor: pointer;
+  background: rgba(243, 232, 208, .92);
+  color: var(--ink);
+  border: 1px solid var(--gold); border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(43, 33, 24, .35);
+}
+.compass button:hover:not(:disabled), .compass button:focus-visible { background: var(--gold-glow); }
+.compass button:disabled { opacity: .2; cursor: not-allowed; }
+.compass .hole { visibility: hidden; }
+
+/* Output cards */
+.output { display: grid; gap: 1rem; margin-top: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.card {
+  background: rgba(248, 240, 220, .8);
+  border: 1px solid var(--weave); border-radius: 6px;
+  padding: .9rem 1rem;
+}
+.card h2 { margin: 0 0 .5rem; font-size: 1.05rem; letter-spacing: .05em; }
+.poem {
+  margin: 0;
+  font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
+  font-size: 1.35rem; letter-spacing: .3em; line-height: 1.9;
+  white-space: pre-wrap;
+}
+.prompt-text, .poem-en { width: 100%; font: .85rem/1.4 ui-monospace, Consolas, monospace; border: 1px solid var(--weave); background: #fbf6ea; }
+.card button {
+  margin-top: .5rem; font: inherit; padding: .35rem .8rem; cursor: pointer;
+  background: var(--silk-deep); border: 1px solid var(--gold); border-radius: 4px;
+}
+.card button:disabled { opacity: .4; cursor: not-allowed; }
+
+footer.credits {
+  margin-top: 2rem; padding-top: .75rem;
+  border-top: 1px solid var(--weave);
+  color: var(--faded); font-size: .8rem;
+}
+footer.credits a { color: var(--gold); }
+
+/* Stylized colour-region tints (visible only when body has .show-regions) */
+.show-regions .cell.r-center     { background: #f0d5cd; }
+.show-regions .cell.r-band-inner { background: #f1decb; }
+.show-regions .cell.r-band-mid   { background: #e6e3c8; }
+.show-regions .cell.r-band-outer { background: #d9e0d5; }
+.show-regions .cell.r-band-far   { background: #dcd6e0; }
+.show-regions .cell.r-border     { background: #e8dcc0; }
+/* Path/selection highlights must win over region tints */
+.show-regions .cell.in-line { background: var(--gold-soft); }
+.show-regions .cell.preview { background: var(--gold-glow); }
+
+/* Responsive: small screens & touch */
+@media (max-width: 600px) {
+  :root { --cell: 30px; --glyph: 18px; }
+  body { padding: .75rem; }
+  header h1 { font-size: 1.5rem; }
+  .grid-viewport { max-height: 60vh; }
+  .output { grid-template-columns: 1fr; }
+}
+@media (pointer: coarse) {
+  :root { --compass-btn: 44px; }
+}
