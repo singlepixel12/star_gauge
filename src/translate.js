@@ -29,7 +29,10 @@ export function buildOpenAIRequest(promptText, { model = DEFAULT_MODEL, apiKey =
 export async function translatePoem(promptText, apiKey, { model = DEFAULT_MODEL } = {}) {
   const req = buildOpenAIRequest(promptText, { model, apiKey });
   const res = await fetch(req.url, { method: req.method, headers: req.headers, body: req.body });
-  if (!res.ok) throw new Error(`OpenAI request failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`OpenAI request failed: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);
+  }
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? '';
 }
