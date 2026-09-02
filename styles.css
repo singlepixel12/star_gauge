@@ -1,16 +1,20 @@
 :root {
-  --cell: 34px;
-  --glyph: 20px;
+  --cell: 36px;
+  --glyph: 22px;
   --silk: #f3e8d0;
   --silk-deep: #eadbb9;
   --weave: #d6c194;
-  --ink: #2b2118;
+  --cell-bg: #fcf8ee;       /* near-white silk so ink glyphs read clearly */
+  --line: #cbb078;          /* ruled grid line, visibly darker than a cell */
+  --ink: #241a11;
   --faded: #5f5140;
   --vermillion: #b5402c;
   --gold: #a87b1e;
   --gold-ink: #7a5a10;
-  --gold-soft: #ecd692;
-  --gold-glow: #f6e7b0;
+  --gold-soft: #f0cf62;     /* traced "gold thread" — saturated enough to stand out */
+  --gold-glow: #f8e39a;
+  /* Halo behind the inert centre 心. Named so the regions-mode rule can reuse it. */
+  --center-glow: radial-gradient(circle at center, #f7dcd1 0%, #f2c7ba 46%, var(--cell-bg) 74%);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -48,7 +52,7 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
 }
 .controls button:disabled { opacity: .4; cursor: not-allowed; }
 .controls .hint, .hint { color: var(--faded); font-size: .8em; }
-.progress { color: var(--faded); font-size: .9rem; }
+.progress { color: var(--ink); font-size: .95rem; font-weight: 600; }
 
 /* Grid inside a pannable viewport; frame padding leaves room for the compass at edges */
 .grid-viewport {
@@ -65,20 +69,37 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   grid-template-columns: repeat(29, var(--cell));
   grid-template-rows: repeat(29, var(--cell));
   gap: 1px;
-  background: var(--weave);
-  border: 1px solid var(--weave);
+  background: var(--line);
+  border: 1px solid var(--line);
 }
 .cell {
   display: flex; align-items: center; justify-content: center;
-  background: var(--silk);
+  background: var(--cell-bg);
   font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
   font-size: var(--glyph); line-height: 1;
   cursor: pointer; user-select: none;
   scroll-margin-top: 72px;
+  transition: background-color .08s ease;
 }
-.cell.center { color: var(--vermillion); font-weight: 700; cursor: default; }
-.cell.in-line { background: var(--gold-soft); }
-.cell.junction { outline: 2px solid var(--vermillion); outline-offset: -2px; z-index: 1; }
+/* Clear tap affordance. Excludes every state class render() can add, so hover
+   never paints over the heart, a traced thread, the junction, or a preview.
+   Kept as four separate :not()s deliberately: that reaches (0,6,0) and so still
+   outranks the .show-regions tints below — a collapsed :not(.a, .b) would drop
+   to (0,3,0) and lose to them. (hover: hover) stops a tap latching the
+   highlight on touch, where there is no pointer to move away. */
+@media (hover: hover) {
+  .cell:not(.center):not(.in-line):not(.junction):not(.preview):hover {
+    background: var(--gold-glow);
+    box-shadow: inset 0 0 0 1px var(--gold);
+  }
+}
+.cell.center {
+  color: var(--vermillion); font-weight: 700; cursor: default;
+  font-size: calc(var(--glyph) + 4px);
+  background: var(--center-glow);
+}
+.cell.in-line { background: var(--gold-soft); font-weight: 600; }
+.cell.junction { outline: 3px solid var(--vermillion); outline-offset: -3px; z-index: 1; }
 .cell.preview { background: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
 
 /* 8-way compass, absolutely positioned over the junction cell */
@@ -137,6 +158,8 @@ footer.credits a { color: var(--gold-ink); }
 .show-regions .cell.r-band-outer { background: #d9e0d5; }
 .show-regions .cell.r-band-far   { background: #dcd6e0; }
 .show-regions .cell.r-border     { background: #e8dcc0; }
+/* The centre halo must survive the r-center tint (higher specificity, same value) */
+.show-regions .cell.r-center.center { background: var(--center-glow); }
 /* Path/selection highlights must win over region tints */
 .show-regions .cell.in-line { background: var(--gold-soft); }
 .show-regions .cell.preview { background: var(--gold-glow); }
@@ -151,4 +174,8 @@ footer.credits a { color: var(--gold-ink); }
 }
 @media (pointer: coarse) {
   :root { --compass-btn: 44px; }
+}
+/* Matches the REDUCED_MOTION handling in src/app.js (smooth scroll → auto) */
+@media (prefers-reduced-motion: reduce) {
+  .cell { transition: none; }
 }
