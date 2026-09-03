@@ -6,6 +6,13 @@
   --weave: #d6c194;
   --cell-bg: #fcf8ee;       /* near-white silk so ink glyphs read clearly */
   --line: #cbb078;          /* ruled grid line, visibly darker than a cell */
+  /* Two closely related thread tones for the woven ground behind the cells.
+     --thread-pale is --line itself and --thread-deep sits just under it, so
+     the weave only ever darkens the old ruled line: with the sheen layer on
+     top the mean gap tone stays ~#caaf76 and no thread pixel gets lighter
+     than a cell, in plain or Colour-regions mode. */
+  --thread-deep: #c0a262;
+  --thread-pale: #cbb078;
   --ink: #241a11;
   --faded: #5f5140;
   --vermillion: #b5402c;
@@ -69,7 +76,24 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   grid-template-columns: repeat(29, var(--cell));
   grid-template-rows: repeat(29, var(--cell));
   gap: 1px;
-  background: var(--line);
+  /* Woven ground. The cells are opaque, so this shows only in the 1px gaps:
+     the second gradient gives each vertical (warp) thread its base tone, the
+     first lays a warm sheen across each horizontal (weft) one and ripples
+     gently down the warp. The 6px period is fixed and out of phase with both
+     cell pitches (36+1 and 30+1 are each 1 mod 6), so neighbouring threads sit
+     at different points of the same slow cycle at either size. Ramps are
+     smooth rather than hard-stopped, so no gap breaks into dashes or shimmers
+     under fractional device pixels. */
+  background-color: var(--line);
+  background-image:
+    repeating-linear-gradient(to bottom,
+      rgba(255, 251, 240, .14) 0px,
+      rgba(255, 251, 240, 0) 3px,
+      rgba(255, 251, 240, .14) 6px),
+    repeating-linear-gradient(to right,
+      var(--thread-deep) 0px,
+      var(--thread-pale) 3px,
+      var(--thread-deep) 6px);
   border: 1px solid var(--line);
 }
 .cell {
