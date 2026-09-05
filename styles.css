@@ -13,6 +13,13 @@
      than a cell, in plain or Colour-regions mode. */
   --thread-deep: #c0a262;
   --thread-pale: #cbb078;
+  /* Selvedge threads for the woven edge around the grid. All four are darker
+     than --cell-bg, so the bound edge never reads as a gap of bare silk, and
+     they stay inside a narrow mid-tone band so the twill ribs cannot flicker. */
+  --selvedge-flax: #e3d0a4;
+  --selvedge-gold: #bd9c56;
+  --selvedge-brown: #8b7145;
+  --selvedge-seam: #9c8150;
   --ink: #241a11;
   --faded: #5f5140;
   --vermillion: #b5402c;
@@ -95,7 +102,26 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
       var(--thread-deep) 0px,
       var(--thread-pale) 3px,
       var(--thread-deep) 6px);
-  border: 1px solid var(--line);
+  /* Woven selvedge. One repeating twill gradient is sliced into the 8px border
+     ring; because the slice equals the border width and the image is sized to
+     the border box, each slice maps 1:1 onto its own edge with no stretching,
+     so the diagonal ribs run unbroken through the corners at any grid size.
+     The stops are ramps rather than hard stops, so the ribs stay soft and
+     cannot alias into shimmer at 1:1. The 12px period is independent of both
+     cell pitches. The solid border is the fallback if border-image is
+     unsupported. */
+  border: 8px solid var(--selvedge-gold);
+  border-image: repeating-linear-gradient(45deg,
+      var(--selvedge-flax) 0px,
+      var(--selvedge-gold) 4px,
+      var(--selvedge-brown) 6px,
+      var(--selvedge-gold) 8px,
+      var(--selvedge-flax) 12px) 8;
+  /* Inner seam: the outer 1px of the padding is the bound edge where the cloth
+     meets the selvedge, and the inner 1px is the same woven ground as every
+     interior gap, so the 1px cell rhythm carries right to the edge. */
+  padding: 2px;
+  box-shadow: inset 0 0 0 1px var(--selvedge-seam);
 }
 .cell {
   display: flex; align-items: center; justify-content: center;
