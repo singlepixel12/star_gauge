@@ -1,9 +1,10 @@
 // src/app.js — DOM wiring.
 import { GRID } from './grid-data.js';
-import { DIRECTIONS, isCenter, lineCells, validDirectionsFrom } from './geometry.js';
+import { DIRECTIONS, SIZE, isCenter, lineCells, validDirectionsFrom } from './geometry.js';
 import { regionAt } from './regions.js';
 import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
+import { pathToThreadGeometry } from './thread-path.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -17,6 +18,8 @@ const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const selection = createSelection(GRID);
 
 const gridEl = document.getElementById('grid');
+const frameEl = gridEl.parentElement;      // .grid-frame — the overlay's anchor
+const threadEl = document.getElementById('thread');
 const compassEl = document.getElementById('compass');
 const progressEl = document.getElementById('progress');
 const undoBtn = document.getElementById('undo');
@@ -95,7 +98,7 @@ function clearPreview() {
   for (const el of gridEl.querySelectorAll('.preview')) el.classList.remove('preview');
 }
 
-function positionCompass(anchor) {
+function positionCompass(anchor, { scroll = true } = {}) {
   const cell = cellEls[anchor.row][anchor.col];
   compassEl.hidden = false;
   // offsetParent of both is .grid-frame (position: relative).
@@ -103,7 +106,96 @@ function positionCompass(anchor) {
   const cy = cell.offsetTop + cell.offsetHeight / 2;
   compassEl.style.left = `${cx - compassEl.offsetWidth / 2}px`;
   compassEl.style.top = `${cy - compassEl.offsetHeight / 2}px`;
-  cell.scrollIntoView({ block: 'center', inline: 'center', behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
+  if (scroll) {
+    cell.scrollIntoView({ block: 'center', inline: 'center', behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
+  }
+}
+
+// --- Gold thread overlay ------------------------------------------------
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  return el;
+}
+
+// Cell geometry is read back from the rendered boxes rather than assumed from
+// the CSS: --cell changes with the media query, and CJK fonts can settle late.
+// Coordinates are relative to .grid-frame, which is both the overlay's
+// containing block and the compass's offsetParent.
+function measureLayout() {
+  if (cellEls.length !== SIZE) return null;
+  const frame = frameEl.getBoundingClientRect();
+  const first = cellEls[0][0].getBoundingClientRect();
+  const lastCol = cellEls[0][SIZE - 1].getBoundingClientRect();
+  const lastRow = cellEls[SIZE - 1][0].getBoundingClientRect();
+  if (!frame.width || !first.width) return null; // not laid out yet
+  const midX = (r) => r.left + r.width / 2;
+  const midY = (r) => r.top + r.height / 2;
+  return {
+    originX: midX(first) - frame.left,
+    originY: midY(first) - frame.top,
+    // Averaged over the full span so sub-pixel cell sizes don't accumulate.
+    stepX: (midX(lastCol) - midX(first)) / (SIZE - 1),
+    stepY: (midY(lastRow) - midY(first)) / (SIZE - 1),
+    width: frame.width,
+    height: frame.height,
+  };
+}
+
+function drawThread() {
+  threadEl.replaceChildren();
+  const layout = measureLayout();
+  if (!layout) return;
+  threadEl.setAttribute('viewBox', `0 0 ${layout.width} ${layout.height}`);
+
+  // Before the first line there are no cells to draw, only the picked start.
+  const start = selection.lineCount() === 0 ? selection.currentAnchor() : null;
+  const geo = pathToThreadGeometry(selection.allLines(), layout, { start });
+  if (geo.segments.length === 0 && !geo.start) return;
+
+  const pitch = Math.min(layout.stepX, layout.stepY);
+  const defs = svgEl('defs', {});
+  const strands = svgEl('g', { class: 'strands' });
+
+  for (const seg of geo.segments) {
+    // One gradient per segment, in user space from the segment's first point to
+    // its last: the thread deepens the way it was drawn, so a still frame shows
+    // reading order without any animation.
+    const gradient = svgEl('linearGradient', {
+      id: seg.gradientId,
+      gradientUnits: 'userSpaceOnUse',
+      x1: seg.from.x, y1: seg.from.y, x2: seg.to.x, y2: seg.to.y,
+    });
+    gradient.append(
+      svgEl('stop', { class: 'strand-from', offset: '0' }),
+      svgEl('stop', { class: 'strand-to', offset: '1' }),
+    );
+    defs.append(gradient);
+    strands.append(svgEl('polyline', {
+      class: 'strand',
+      points: seg.pointsAttr,
+      stroke: `url(#${seg.gradientId})`,
+      'stroke-width': Math.max(2.5, pitch * 0.1),
+    }));
+  }
+
+  const knots = svgEl('g', { class: 'knots' });
+  for (const pivot of geo.pivots) {
+    knots.append(svgEl('circle', { class: 'knot', cx: pivot.x, cy: pivot.y, r: pitch * 0.3 }));
+  }
+  if (geo.start) {
+    // Double ring — deliberately unlike the single-ring pivot knots.
+    knots.append(svgEl('circle', { class: 'knot-start', cx: geo.start.x, cy: geo.start.y, r: pitch * 0.4 }));
+    knots.append(svgEl('circle', { class: 'knot-start-inner', cx: geo.start.x, cy: geo.start.y, r: pitch * 0.26 }));
+  }
+  if (geo.end) {
+    knots.append(svgEl('circle', { class: 'knot-head', cx: geo.end.x, cy: geo.end.y, r: Math.max(2.5, pitch * 0.085) }));
+  }
+
+  threadEl.append(defs, strands, knots);
 }
 
 function render() {
@@ -124,6 +216,8 @@ function render() {
   } else {
     compassEl.hidden = true;
   }
+
+  drawThread();
 
   const n = selection.lineCount();
   const needed = selection.linesNeeded();
@@ -173,3 +267,14 @@ translateBtn.disabled = !LLM_ENABLED;
 buildGrid();
 buildCompass();
 render();
+
+// Cell boxes change with the media query, a window resize, or a late-loading
+// CJK font. Re-measure and redraw only — calling render() here would run
+// positionCompass()'s scrollIntoView and yank the user's pan position.
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => {
+    drawThread();
+    const anchor = selection.currentAnchor();
+    if (anchor) positionCompass(anchor, { scroll: false });
+  }).observe(gridEl);
+}

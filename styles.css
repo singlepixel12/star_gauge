@@ -13,6 +13,7 @@
   --gold-ink: #7a5a10;
   --gold-soft: #f0cf62;     /* traced "gold thread" — saturated enough to stand out */
   --gold-glow: #f8e39a;
+  --gold-wash: #f8eed4;     /* faint tint marking a traced cell under the thread */
   /* Halo behind the inert centre 心. Named so the regions-mode rule can reuse it. */
   --center-glow: radial-gradient(circle at center, #f7dcd1 0%, #f2c7ba 46%, var(--cell-bg) 74%);
 }
@@ -98,9 +99,33 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   font-size: calc(var(--glyph) + 4px);
   background: var(--center-glow);
 }
-.cell.in-line { background: var(--gold-soft); font-weight: 600; }
+/* The traced path is drawn by the SVG thread overlay below; the cell keeps only
+   a faint wash so a flat fill can't compete with the thread's own gradient. */
+.cell.in-line { background: var(--gold-wash); font-weight: 600; }
 .cell.junction { outline: 3px solid var(--vermillion); outline-offset: -3px; z-index: 1; }
 .cell.preview { background: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
+
+/* Gold-thread overlay: an SVG sibling of #grid inside .grid-frame, so it is
+   anchored to the frame and stays aligned while .grid-viewport pans. */
+.thread {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  z-index: 5;             /* above the cells, below the compass (z-index 10) */
+  pointer-events: none;   /* every cell underneath stays clickable */
+  overflow: visible;
+  /* Multiply lets the ink glyphs read straight through the narrow thread.
+     It belongs on the overlay root: the grid is painted earlier in the same
+     (root) stacking context, so it is this element's blend backdrop. */
+  mix-blend-mode: multiply;
+}
+.thread .strand { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+/* Direction: each segment's gradient runs pale at its start, deep at its end. */
+.thread .strand-from { stop-color: var(--gold-soft); stop-opacity: .45; }
+.thread .strand-to   { stop-color: var(--gold-ink);  stop-opacity: .95; }
+/* Knots are rings, so the character inside a junction is never covered. */
+.thread .knot { fill: none; stroke: var(--vermillion); stroke-width: 2; }
+.thread .knot-start { fill: none; stroke: var(--vermillion); stroke-width: 2.5; }
+.thread .knot-start-inner { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+.thread .knot-head { fill: var(--vermillion); stroke: none; }
 
 /* 8-way compass, absolutely positioned over the junction cell */
 .compass {
@@ -161,7 +186,7 @@ footer.credits a { color: var(--gold-ink); }
 /* The centre halo must survive the r-center tint (higher specificity, same value) */
 .show-regions .cell.r-center.center { background: var(--center-glow); }
 /* Path/selection highlights must win over region tints */
-.show-regions .cell.in-line { background: var(--gold-soft); }
+.show-regions .cell.in-line { background: var(--gold-wash); }
 .show-regions .cell.preview { background: var(--gold-glow); }
 
 /* Responsive: small screens & touch */

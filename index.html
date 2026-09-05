@@ -32,6 +32,9 @@
     <section class="grid-viewport" aria-label="poem grid">
       <div class="grid-frame">
         <div id="grid" class="grid"></div>
+        <!-- Gold-thread overlay: anchored to the frame, so it pans with the grid.
+             Purely decorative — the poem itself is read from the cells. -->
+        <svg id="thread" class="thread" aria-hidden="true" focusable="false"></svg>
         <div id="compass" class="compass" hidden></div>
       </div>
     </section>
