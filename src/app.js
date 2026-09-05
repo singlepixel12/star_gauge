@@ -31,6 +31,7 @@ const promptStatusEl = document.getElementById('prompt-status');
 const promptTextEl = document.getElementById('prompt-text');
 const copyPromptBtn = document.getElementById('copy-prompt');
 const translateBtn = document.getElementById('translate');
+const englishHelpEl = document.getElementById('english-help');
 
 const cellEls = []; // cellEls[row][col]
 const compassBtns = new Map(); // dir.id -> button
@@ -263,6 +264,8 @@ regionsToggle.addEventListener('change', () =>
   document.body.classList.toggle('show-regions', regionsToggle.checked));
 copyPromptBtn.addEventListener('click', onCopyPrompt);
 translateBtn.disabled = !LLM_ENABLED;
+// The "translation is off" helper only applies while the live call is disabled.
+englishHelpEl.hidden = LLM_ENABLED;
 
 buildGrid();
 buildCompass();
