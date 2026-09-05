@@ -20,6 +20,7 @@
   --gold-ink: #7a5a10;
   --gold-soft: #f0cf62;     /* traced "gold thread" — saturated enough to stand out */
   --gold-glow: #f8e39a;
+  --gold-wash: #f8eed4;     /* faint tint marking a traced cell under the thread */
   /* Halo behind the inert centre 心. Named so the regions-mode rule can reuse it. */
   --center-glow: radial-gradient(circle at center, #f7dcd1 0%, #f2c7ba 46%, var(--cell-bg) 74%);
 }
@@ -122,9 +123,33 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   font-size: calc(var(--glyph) + 4px);
   background: var(--center-glow);
 }
-.cell.in-line { background: var(--gold-soft); font-weight: 600; }
+/* The traced path is drawn by the SVG thread overlay below; the cell keeps only
+   a faint wash so a flat fill can't compete with the thread's own gradient. */
+.cell.in-line { background: var(--gold-wash); font-weight: 600; }
 .cell.junction { outline: 3px solid var(--vermillion); outline-offset: -3px; z-index: 1; }
 .cell.preview { background: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
+
+/* Gold-thread overlay: an SVG sibling of #grid inside .grid-frame, so it is
+   anchored to the frame and stays aligned while .grid-viewport pans. */
+.thread {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  z-index: 5;             /* above the cells, below the compass (z-index 10) */
+  pointer-events: none;   /* every cell underneath stays clickable */
+  overflow: visible;
+  /* Multiply lets the ink glyphs read straight through the narrow thread.
+     It belongs on the overlay root: the grid is painted earlier in the same
+     (root) stacking context, so it is this element's blend backdrop. */
+  mix-blend-mode: multiply;
+}
+.thread .strand { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+/* Direction: each segment's gradient runs pale at its start, deep at its end. */
+.thread .strand-from { stop-color: var(--gold-soft); stop-opacity: .45; }
+.thread .strand-to   { stop-color: var(--gold-ink);  stop-opacity: .95; }
+/* Knots are rings, so the character inside a junction is never covered. */
+.thread .knot { fill: none; stroke: var(--vermillion); stroke-width: 2; }
+.thread .knot-start { fill: none; stroke: var(--vermillion); stroke-width: 2.5; }
+.thread .knot-start-inner { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+.thread .knot-head { fill: var(--vermillion); stroke: none; }
 
 /* 8-way compass, absolutely positioned over the junction cell */
 .compass {
@@ -147,26 +172,59 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
 .compass button:disabled { opacity: .2; cursor: not-allowed; }
 .compass .hole { visibility: hidden; }
 
-/* Output cards */
-.output { display: grid; gap: 1rem; margin-top: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+/* Output area — the extracted poem is the payoff; the other two cards are utilities. */
+.output {
+  display: grid; gap: 1rem; margin-top: 1.25rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .card {
   background: rgba(248, 240, 220, .8);
   border: 1px solid var(--weave); border-radius: 6px;
   padding: .9rem 1rem;
 }
 .card h2 { margin: 0 0 .5rem; font-size: 1.05rem; letter-spacing: .05em; }
+
+/* Poem card: spans both columns above the utilities, framed like a mounted scroll. */
+.poem-chinese {
+  grid-column: 1 / -1;
+  padding: 1.5rem 1.75rem;
+  background: radial-gradient(ellipse at top, #fbf3df 0%, rgba(248, 240, 220, .85) 72%);
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 0 26px rgba(168, 123, 30, .13);
+}
 .poem {
   margin: 0;
   font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
-  font-size: 1.35rem; letter-spacing: .3em; line-height: 1.9;
-  white-space: pre-wrap;
+  font-size: clamp(1.7rem, 1.05rem + 2.6vw, 2.25rem);
+  letter-spacing: .4em; line-height: 2.1;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto;
 }
-.prompt-text, .poem-en { width: 100%; font: .85rem/1.4 ui-monospace, Consolas, monospace; border: 1px solid var(--weave); background: #fbf6ea; }
+
+/* Utility cards deliberately read quieter than the poem. */
+.prompt-block, .english-block {
+  background: rgba(240, 232, 214, .5);
+  border-color: rgba(214, 193, 148, .55);
+}
+.prompt-block h2, .english-block h2 { color: var(--faded); }
+.english-help { margin: 0 0 .5rem; }
+.prompt-text, .poem-en {
+  width: 100%; font: .85rem/1.4 ui-monospace, Consolas, monospace;
+  border: 1px solid var(--weave); background: #f7f2e6;
+}
+.prompt-text { color: var(--faded); }
+.prompt-text:focus, .poem-en:focus {
+  outline: 2px solid var(--gold); outline-offset: 1px; color: var(--ink);
+}
 .card button {
   margin-top: .5rem; font: inherit; padding: .35rem .8rem; cursor: pointer;
   background: var(--silk-deep); border: 1px solid var(--gold); border-radius: 4px;
 }
 .card button:disabled { opacity: .4; cursor: not-allowed; }
+/* The disabled Translate button is an intentional v1 state (LLM_ENABLED = false), not a broken control. */
+.english-block button:disabled {
+  opacity: .6; cursor: default;
+  border-style: dashed; background: transparent; color: var(--faded);
+}
 
 footer.credits {
   margin-top: 2rem; padding-top: .75rem;
@@ -185,7 +243,7 @@ footer.credits a { color: var(--gold-ink); }
 /* The centre halo must survive the r-center tint (higher specificity, same value) */
 .show-regions .cell.r-center.center { background: var(--center-glow); }
 /* Path/selection highlights must win over region tints */
-.show-regions .cell.in-line { background: var(--gold-soft); }
+.show-regions .cell.in-line { background: var(--gold-wash); }
 .show-regions .cell.preview { background: var(--gold-glow); }
 
 /* Responsive: small screens & touch */
@@ -195,6 +253,8 @@ footer.credits a { color: var(--gold-ink); }
   header h1 { font-size: 1.5rem; }
   .grid-viewport { max-height: 60vh; }
   .output { grid-template-columns: 1fr; }
+  .poem-chinese { padding: 1.1rem 1rem; }
+  .poem { letter-spacing: .25em; }
 }
 @media (pointer: coarse) {
   :root { --compass-btn: 44px; }

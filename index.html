@@ -32,6 +32,9 @@
     <section class="grid-viewport" aria-label="poem grid">
       <div class="grid-frame">
         <div id="grid" class="grid"></div>
+        <!-- Gold-thread overlay: anchored to the frame, so it pans with the grid.
+             Purely decorative — the poem itself is read from the cells. -->
+        <svg id="thread" class="thread" aria-hidden="true" focusable="false"></svg>
         <div id="compass" class="compass" hidden></div>
       </div>
     </section>
@@ -49,8 +52,9 @@
       </div>
       <div class="card english-block">
         <h2>English poem</h2>
-        <textarea id="poem-en" class="poem-en" rows="9" aria-label="English poem"
-          placeholder="The English translation will appear here — paste it, or wire up the OpenAI call."></textarea>
+        <p id="english-help" class="hint english-help">Automatic translation is off in v1, so this space stays empty until you add a translation yourself. Paste one into the box below — it stays fully editable.</p>
+        <textarea id="poem-en" class="poem-en" rows="9" aria-label="English poem" aria-describedby="english-help"
+          placeholder="Paste an English translation of the quatrain here."></textarea>
         <button id="translate" type="button" disabled
           title="OpenAI integration is scaffolded but disabled in v1">Translate with OpenAI (disabled)</button>
       </div>
