@@ -71,7 +71,13 @@ function buildCompass() {
     btn.type = 'button';
     btn.textContent = dir.arrow;
     btn.setAttribute('aria-label', `extend line ${DIR_WORDS[id]}`);
-    btn.addEventListener('click', () => { clearPreview(); selection.addLine(dir); render(); });
+    btn.addEventListener('click', () => {
+      clearPreview();
+      // Only a line that was actually committed is drawn on; a rejected
+      // direction re-renders unchanged and must not re-animate anything.
+      const added = selection.addLine(dir);
+      render({ animateNewest: added });
+    });
     btn.addEventListener('mouseenter', () => previewLine(dir));
     btn.addEventListener('focus', () => previewLine(dir));
     btn.addEventListener('mouseleave', clearPreview);
@@ -146,7 +152,12 @@ function measureLayout() {
   };
 }
 
-function drawThread() {
+// drawThread() rebuilds the whole overlay every call, so "animate" cannot mean
+// "animate what is here" — it would replay the entire path on every move and on
+// every resize. `animateNewest` is an explicit, one-shot intent passed only by
+// the action that just added a line: exactly one strand gets the drawing class,
+// every earlier strand is rendered final.
+function drawThread({ animateNewest = false } = {}) {
   threadEl.replaceChildren();
   const layout = measureLayout();
   if (!layout) return;
@@ -156,6 +167,11 @@ function drawThread() {
   const start = selection.lineCount() === 0 ? selection.currentAnchor() : null;
   const geo = pathToThreadGeometry(selection.allLines(), layout, { start });
   if (geo.segments.length === 0 && !geo.start) return;
+
+  // The reduced-motion gate lives here as well as in CSS so the class is never
+  // even applied when the user has asked for no motion.
+  const drawNewest = animateNewest && !REDUCED_MOTION;
+  const newestIndex = geo.segments.length - 1;
 
   const pitch = Math.min(layout.stepX, layout.stepY);
   const defs = svgEl('defs', {});
@@ -175,11 +191,15 @@ function drawThread() {
       svgEl('stop', { class: 'strand-to', offset: '1' }),
     );
     defs.append(gradient);
+    const isNewest = seg.index === newestIndex;
     strands.append(svgEl('polyline', {
-      class: 'strand',
+      class: drawNewest && isNewest ? 'strand strand-drawing' : 'strand',
       points: seg.pointsAttr,
       stroke: `url(#${seg.gradientId})`,
       'stroke-width': Math.max(2.5, pitch * 0.1),
+      // Normalised length: one dash unit spans the segment, so a diagonal run
+      // draws in the same time as an orthogonal one.
+      pathLength: '1',
     }));
   }
 
@@ -199,7 +219,7 @@ function drawThread() {
   threadEl.append(defs, strands, knots);
 }
 
-function render() {
+function render({ animateNewest = false } = {}) {
   clearPreview();
   for (const el of gridEl.querySelectorAll('.in-line, .junction')) {
     el.classList.remove('in-line', 'junction');
@@ -218,7 +238,7 @@ function render() {
     compassEl.hidden = true;
   }
 
-  drawThread();
+  drawThread({ animateNewest });
 
   const n = selection.lineCount();
   const needed = selection.linesNeeded();
