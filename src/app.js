@@ -5,6 +5,7 @@ import { regionAt } from './regions.js';
 import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
 import { pathToThreadGeometry } from './thread-path.js';
+import { isQuatrainMilestone } from './milestone.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -32,6 +33,8 @@ const promptTextEl = document.getElementById('prompt-text');
 const copyPromptBtn = document.getElementById('copy-prompt');
 const translateBtn = document.getElementById('translate');
 const englishHelpEl = document.getElementById('english-help');
+const completionEl = document.getElementById('completion-moment');
+const completionCaptionEl = document.getElementById('completion-caption');
 
 const cellEls = []; // cellEls[row][col]
 const compassBtns = new Map(); // dir.id -> button
@@ -199,6 +202,58 @@ function drawThread() {
   threadEl.append(defs, strands, knots);
 }
 
+// --- Quatrain seal ------------------------------------------------------
+
+// The one deliberate payoff: a seal that settles over the page each time the
+// committed lines reach a fresh multiple of four. It is non-blocking by
+// construction — fixed, pointer-transparent and self-dismissing — so the
+// compass stays live for line five and nothing here scrolls the page or the
+// grid. #progress (role="status") remains the accessible announcement; the
+// seal is aria-hidden decoration, and the live poem output is untouched.
+const SEAL_MS = 2400;   // how long the seal rests before it withdraws
+const SEAL_FADE_MS = 450; // must match the .completion-moment transition
+let lastLineCount = selection.lineCount();
+let sealRestTimer = null;
+let sealFadeTimer = null;
+
+function showSeal(n) {
+  const quatrains = n / 4;
+  completionCaptionEl.textContent = quatrains === 1
+    ? 'A quatrain — four lines, twenty-eight characters.'
+    : `${quatrains} quatrains — ${n} lines woven.`;
+  clearTimeout(sealRestTimer);
+  clearTimeout(sealFadeTimer);
+  completionEl.hidden = false;
+  if (REDUCED_MOTION) {
+    completionEl.classList.add('is-showing');
+  } else {
+    // Drop and re-add across a forced reflow so a seal still on screen replays
+    // its reveal instead of sitting there unchanged.
+    completionEl.classList.remove('is-showing');
+    void completionEl.offsetWidth;
+    completionEl.classList.add('is-showing');
+  }
+  sealRestTimer = setTimeout(hideSeal, SEAL_MS);
+}
+
+function hideSeal() {
+  clearTimeout(sealRestTimer);
+  clearTimeout(sealFadeTimer);
+  sealRestTimer = null;
+  const wasShowing = completionEl.classList.contains('is-showing');
+  completionEl.classList.remove('is-showing');
+  // [hidden] is display:none, so unmount only once the fade has played out.
+  if (REDUCED_MOTION || !wasShowing) {
+    completionEl.hidden = true;
+    sealFadeTimer = null;
+  } else {
+    sealFadeTimer = setTimeout(() => {
+      completionEl.hidden = true;
+      sealFadeTimer = null;
+    }, SEAL_FADE_MS);
+  }
+}
+
 function render() {
   clearPreview();
   for (const el of gridEl.querySelectorAll('.in-line, .junction')) {
@@ -222,6 +277,12 @@ function render() {
 
   const n = selection.lineCount();
   const needed = selection.linesNeeded();
+
+  // Only a forward step onto a multiple of four seals; the first render, undo
+  // and reset stay quiet, and any other change clears a seal still showing.
+  if (isQuatrainMilestone(lastLineCount, n)) showSeal(n);
+  else if (n !== lastLineCount) hideSeal();
+  lastLineCount = n;
   progressEl.textContent = !anchor
     ? 'Tap a character to begin.'
     : n === 0

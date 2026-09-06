@@ -61,6 +61,15 @@
     </section>
   </main>
 
+  <!-- Quatrain seal: the payoff at every fourth committed line. Decorative and
+       pointer-transparent, so it never blocks the compass and never scrolls the
+       page or the grid; #progress above carries the accessible announcement.
+       Lives outside .grid-viewport so it is not clipped by the grid's pan box. -->
+  <div id="completion-moment" class="completion-moment" aria-hidden="true" hidden>
+    <span class="seal">成</span>
+    <span id="completion-caption" class="seal-caption"></span>
+  </div>
+
   <footer class="credits">
     Text: <a href="https://zh.wikisource.org/wiki/%E7%92%87%E7%8E%91%E5%9C%96">Chinese Wikisource, 璇璣圖</a>
     · Background: <a href="https://en.wikipedia.org/wiki/Star_Gauge">Wikipedia, Star Gauge</a>
