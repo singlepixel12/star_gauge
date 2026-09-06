@@ -1,6 +1,9 @@
 :root {
   --cell: 36px;
   --glyph: 22px;
+  /* Small UI type for the sticky controls bar. The silk serif belongs to the
+     poem and the grid; buttons and status read better in the system face. */
+  --ui: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --silk: #f3e8d0;
   --silk-deep: #eadbb9;
   --weave: #d6c194;
@@ -53,21 +56,101 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
 .about summary { cursor: pointer; color: var(--ink); font-style: italic; }
 .about p { margin: .5rem 0 0; line-height: 1.55; }
 
+/* Sticky controls bar. Not a flat seam ruled across the page: a rounded panel
+   cut from the same silk the body is painted in, lifted just clear of the top
+   edge so the cloth keeps running behind it as the grid scrolls under. The
+   explicit grid — three actions, then the status — is what keeps the bar to a
+   single row on desktop and exactly two rows on a phone. */
 .controls {
-  position: sticky; top: 0; z-index: 20;
-  display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
-  padding: .5rem 0; background: var(--silk);
-  border-bottom: 1px solid var(--weave);
-  margin-bottom: .75rem;
+  position: sticky; top: .4rem; z-index: 20;
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .6rem;
+  margin-bottom: .85rem;
+  font-family: var(--ui);
+  border: 1px solid var(--weave);
+  border-radius: 10px;
+  /* Opaque enough to stand alone: where backdrop-filter is unavailable this
+     layer alone must hide the grid passing beneath it. */
+  background:
+    radial-gradient(120% 220% at 8% -60%,
+      rgba(255, 250, 237, .97) 0%,
+      rgba(246, 236, 214, .95) 55%,
+      rgba(234, 219, 185, .95) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 253, 246, .9),  /* thread of light along the top */
+    0 6px 14px -10px rgba(90, 72, 44, .55); /* the panel's shadow on the silk */
+}
+/* Where the browser can blur what passes underneath, let the silk show through. */
+@supports (backdrop-filter: blur(8px)) {
+  .controls {
+    background:
+      radial-gradient(120% 220% at 8% -60%,
+        rgba(255, 250, 237, .84) 0%,
+        rgba(246, 236, 214, .8) 55%,
+        rgba(234, 219, 185, .8) 100%);
+    backdrop-filter: blur(8px) saturate(1.08);
+  }
 }
 .controls button {
-  font: inherit; padding: .35rem .8rem; cursor: pointer;
-  background: var(--silk-deep); color: var(--ink);
-  border: 1px solid var(--gold); border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  font: 500 .85rem/1.2 var(--ui);
+  letter-spacing: .01em;
+  padding: .4rem .75rem; cursor: pointer;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fdf7e9 0%, var(--silk-deep) 100%);
+  border: 1px solid var(--gold); border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 253, 246, .85);
+  transition: border-color .12s ease, box-shadow .12s ease, transform .12s ease;
 }
+.controls button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #fdf4dc 0%, var(--gold-glow) 100%);
+  border-color: var(--gold-ink);
+}
+.controls button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(90, 72, 44, .28);
+}
+.controls button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
 .controls button:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Colour-regions toggle. The pressed state is never carried by colour alone:
+   the swatch fills *and* gains a tick, and the button itself sits inset. */
+.toggle-mark {
+  flex: none; width: 1em; height: 1em;
+  display: inline-grid; place-items: center;
+  font-size: .85rem; line-height: 1;
+  color: transparent;
+  background: var(--cell-bg);
+  border: 1px solid var(--gold); border-radius: 3px;
+}
+.toggle-mark::before { content: "\2713"; font-size: .75em; }
+.toggle-text { white-space: nowrap; }
+.toggle[aria-pressed="true"] {
+  background: linear-gradient(180deg, var(--gold-wash) 0%, #f0e2bd 100%);
+  border-color: var(--gold-ink);
+  box-shadow: inset 0 2px 4px rgba(90, 72, 44, .22);
+}
+.toggle[aria-pressed="true"] .toggle-mark {
+  color: #fdf7e9;
+  background: var(--gold-ink);
+  border-color: var(--gold-ink);
+}
+
 .controls .hint, .hint { color: var(--faded); font-size: .8em; }
-.progress { color: var(--ink); font-size: .95rem; font-weight: 600; }
+/* Status copy gets its own quiet panel instead of running bold and inline with
+   the actions: it is what to do next, not a fourth thing to press. */
+.progress {
+  min-width: 0;
+  font: 400 .82rem/1.35 var(--ui);
+  color: var(--faded);
+  padding: .35rem .7rem;
+  background: rgba(252, 248, 238, .72);
+  border: 1px solid rgba(214, 193, 148, .7);
+  border-radius: 999px;
+}
 
 /* Grid inside a pannable viewport; frame padding leaves room for the compass at edges */
 .grid-viewport {
@@ -277,15 +360,37 @@ footer.credits a { color: var(--gold-ink); }
   :root { --cell: 30px; --glyph: 18px; }
   body { padding: .75rem; }
   header h1 { font-size: 1.5rem; }
+  /* Two rows, always: the three controls share row one and the status spans
+     row two, so the bar cannot creep down over the top of a phone screen. */
+  .controls {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: .4rem; padding: .4rem .5rem;
+  }
+  .controls button { padding: .4rem .6rem; }
+  .progress { grid-column: 1 / -1; }
   .grid-viewport { max-height: 60vh; }
   .output { grid-template-columns: 1fr; }
   .poem-chinese { padding: 1.1rem 1rem; }
   .poem { letter-spacing: .25em; }
 }
+/* Narrow phones: tighten the row rather than let it break into a third one. */
+@media (max-width: 380px) {
+  .controls { gap: .3rem; padding: .35rem .4rem; }
+  .controls button { padding: .35rem .5rem; font-size: .8rem; }
+  /* The caveat leaves the layout, not the accessible name: the toggle still
+     announces "Colour regions (stylized)". */
+  .controls .toggle .hint {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+}
 @media (pointer: coarse) {
   :root { --compass-btn: 44px; }
+  .controls button { min-height: 44px; }
 }
 /* Matches the REDUCED_MOTION handling in src/app.js (smooth scroll → auto) */
 @media (prefers-reduced-motion: reduce) {
-  .cell { transition: none; }
+  .cell, .controls button { transition: none; }
+  .controls button:active:not(:disabled) { transform: none; }
 }

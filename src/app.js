@@ -5,6 +5,7 @@ import { regionAt } from './regions.js';
 import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
 import { pathToThreadGeometry } from './thread-path.js';
+import { nextRegionsState } from './controls.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -258,10 +259,19 @@ async function onCopyPrompt() {
   setTimeout(() => { copyPromptBtn.textContent = 'Copy translation prompt'; }, 1800);
 }
 
+// Colour regions is a native button toggle, so aria-pressed *is* the state.
+// The transition itself lives in ./controls.js (pure, and so testable); this
+// only applies it, writing the attribute and the body class out of the one
+// state object, which is why the two cannot drift.
+function applyRegionsState({ on, ariaPressed }) {
+  regionsToggle.setAttribute('aria-pressed', ariaPressed);
+  document.body.classList.toggle('show-regions', on);
+}
+
 undoBtn.addEventListener('click', () => { selection.undo(); render(); });
 resetBtn.addEventListener('click', () => { selection.reset(); render(); });
-regionsToggle.addEventListener('change', () =>
-  document.body.classList.toggle('show-regions', regionsToggle.checked));
+regionsToggle.addEventListener('click', () =>
+  applyRegionsState(nextRegionsState(regionsToggle.getAttribute('aria-pressed'))));
 copyPromptBtn.addEventListener('click', onCopyPrompt);
 translateBtn.disabled = !LLM_ENABLED;
 // The "translation is off" helper only applies while the live call is disabled.
