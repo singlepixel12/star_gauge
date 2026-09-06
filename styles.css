@@ -41,16 +41,58 @@ body {
     radial-gradient(ellipse at top, #f8efdc 0%, var(--silk) 55%, var(--silk-deep) 100%);
   font-family: Georgia, "Times New Roman", serif;
 }
-header h1 {
-  margin: 0;
-  font-size: 2rem;
-  letter-spacing: .1em;
-  font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
+/* Opening. The gold thread on the grid is the signature, so the hero stays
+   deliberately quiet: ink on silk, no gold rules or panels, and a single
+   vermillion accent — the 心 seal, wearing the same halo as the grid's centre
+   cell. Story first, instruction second, fuller context folded into .about. */
+.opening {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  /* start, not center: the seal sits opposite the masthead and stays put when
+     the About disclosure opens. */
+  align-items: start;
+  gap: 1.5rem;
+  max-width: 70ch;
+  margin: 0 0 1.5rem;
 }
-header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
-.tagline { color: var(--faded); margin: .3rem 0 1rem; font-style: italic; }
-.about { margin: 0 0 1rem; max-width: 62ch; color: var(--faded); }
+.opening-copy { min-width: 0; }
+.opening h1 {
+  margin: 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .75rem;
+  font-weight: 400;
+}
+/* Display voice: the Chinese title is the masthead, the Latin one a quiet gloss. */
+.opening .title-zh {
+  font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
+  font-size: clamp(2.4rem, 1.5rem + 3.2vw, 3.5rem);
+  letter-spacing: .14em; line-height: 1.05;
+}
+.opening .latin {
+  font-size: .8rem; color: var(--faded);
+  letter-spacing: .34em; text-transform: uppercase;
+}
+.story-lede {
+  margin: .85rem 0 0; max-width: 54ch;
+  font-size: 1.05rem; line-height: 1.6; color: var(--ink);
+}
+.opening-mark {
+  margin: 0;
+  display: grid; place-items: center;
+  width: 4rem; height: 4rem;
+  font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
+  font-size: 2rem; line-height: 1;
+  color: var(--vermillion);
+  background: var(--center-glow);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(181, 64, 44, .18);
+  user-select: none;
+}
+.tagline { color: var(--faded); margin: .55rem 0 .9rem; font-style: italic; }
+.about { margin: 0; max-width: 62ch; color: var(--faded); }
 .about summary { cursor: pointer; color: var(--ink); font-style: italic; }
+.about summary:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 3px;
+}
 .about p { margin: .5rem 0 0; line-height: 1.55; }
 
 .controls {
@@ -276,7 +318,15 @@ footer.credits a { color: var(--gold-ink); }
 @media (max-width: 600px) {
   :root { --cell: 30px; --glyph: 18px; }
   body { padding: .75rem; }
-  header h1 { font-size: 1.5rem; }
+  /* Hero collapses to one column and the seal moves above the title, small
+     enough that the grid still starts near the fold. */
+  .opening { grid-template-columns: 1fr; gap: .6rem; margin-bottom: 1rem; }
+  .opening-mark {
+    order: -1; justify-self: start;
+    width: 2.5rem; height: 2.5rem; font-size: 1.25rem;
+  }
+  .story-lede { margin-top: .6rem; font-size: 1rem; }
+  .tagline { margin: .5rem 0 .75rem; }
   .grid-viewport { max-height: 60vh; }
   .output { grid-template-columns: 1fr; }
   .poem-chinese { padding: 1.1rem 1rem; }

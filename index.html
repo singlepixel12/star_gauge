@@ -7,18 +7,30 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header>
-    <h1>璇璣圖 <span class="latin">· Star Gauge</span></h1>
-    <p class="tagline">Trace a thread through Su Hui's woven poem — seven characters a line, four lines a quatrain.</p>
-    <details class="about">
-      <summary>About this poem</summary>
-      <p>In the 4th century, Su Hui (蘇蕙) wove these 841 characters in five
-      colours of silk for her husband Dou Tao (竇滔), exiled far away and
-      drifting toward another. Read in any direction — across, down, diagonally,
-      forwards or backwards — the grid conceals nearly three thousand poems of
-      longing, separation and constancy. The centre character, 心
-      ("heart"), belongs to every reading and to none.</p>
-    </details>
+  <header class="opening">
+    <div class="opening-copy">
+      <h1>
+        <span class="title-zh" lang="zh-Hant">璇璣圖</span>
+        <span class="latin">Star Gauge</span>
+      </h1>
+      <p class="story-lede">Su Hui wove this square of silk in the 4th century for a
+      husband posted far away, and drifting from her. Its 841 characters read across,
+      down and diagonally, forwards and backwards — one cloth holding thousands of poems.</p>
+      <p class="tagline">Trace a thread through the grid — seven characters a line, four lines to a quatrain.</p>
+      <details class="about">
+        <summary>About this poem</summary>
+        <p>In the 4th century, Su Hui (蘇蕙) wove these 841 characters in five
+        colours of silk for her husband Dou Tao (竇滔), exiled far away and
+        drifting toward another. Read in any direction — across, down, diagonally,
+        forwards or backwards — the grid conceals nearly three thousand poems of
+        longing, separation and constancy. The centre character, 心
+        ("heart"), belongs to every reading and to none.</p>
+      </details>
+    </div>
+    <!-- The centre character as a quiet seal: same halo as the grid's inert 心,
+         decorative only — never a control, and never part of a selected line. -->
+    <p class="opening-mark" lang="zh-Hant" role="img"
+       aria-label="心 — the heart character at the centre of the grid, belonging to every reading and to none">心</p>
   </header>
 
   <main>
