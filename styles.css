@@ -6,6 +6,20 @@
   --weave: #d6c194;
   --cell-bg: #fcf8ee;       /* near-white silk so ink glyphs read clearly */
   --line: #cbb078;          /* ruled grid line, visibly darker than a cell */
+  /* Two closely related thread tones for the woven ground behind the cells.
+     --thread-pale is --line itself and --thread-deep sits just under it, so
+     the weave only ever darkens the old ruled line: with the sheen layer on
+     top the mean gap tone stays ~#caaf76 and no thread pixel gets lighter
+     than a cell, in plain or Colour-regions mode. */
+  --thread-deep: #c0a262;
+  --thread-pale: #cbb078;
+  /* Selvedge threads for the woven edge around the grid. All four are darker
+     than --cell-bg, so the bound edge never reads as a gap of bare silk, and
+     they stay inside a narrow mid-tone band so the twill ribs cannot flicker. */
+  --selvedge-flax: #e3d0a4;
+  --selvedge-gold: #bd9c56;
+  --selvedge-brown: #8b7145;
+  --selvedge-seam: #9c8150;
   --ink: #241a11;
   --faded: #5f5140;
   --vermillion: #b5402c;
@@ -70,8 +84,44 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   grid-template-columns: repeat(29, var(--cell));
   grid-template-rows: repeat(29, var(--cell));
   gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
+  /* Woven ground. The cells are opaque, so this shows only in the 1px gaps:
+     the second gradient gives each vertical (warp) thread its base tone, the
+     first lays a warm sheen across each horizontal (weft) one and ripples
+     gently down the warp. The 6px period is fixed and out of phase with both
+     cell pitches (36+1 and 30+1 are each 1 mod 6), so neighbouring threads sit
+     at different points of the same slow cycle at either size. Ramps are
+     smooth rather than hard-stopped, so no gap breaks into dashes or shimmers
+     under fractional device pixels. */
+  background-color: var(--line);
+  background-image:
+    repeating-linear-gradient(to bottom,
+      rgba(255, 251, 240, .14) 0px,
+      rgba(255, 251, 240, 0) 3px,
+      rgba(255, 251, 240, .14) 6px),
+    repeating-linear-gradient(to right,
+      var(--thread-deep) 0px,
+      var(--thread-pale) 3px,
+      var(--thread-deep) 6px);
+  /* Woven selvedge. One repeating twill gradient is sliced into the 8px border
+     ring; because the slice equals the border width and the image is sized to
+     the border box, each slice maps 1:1 onto its own edge with no stretching,
+     so the diagonal ribs run unbroken through the corners at any grid size.
+     The stops are ramps rather than hard stops, so the ribs stay soft and
+     cannot alias into shimmer at 1:1. The 12px period is independent of both
+     cell pitches. The solid border is the fallback if border-image is
+     unsupported. */
+  border: 8px solid var(--selvedge-gold);
+  border-image: repeating-linear-gradient(45deg,
+      var(--selvedge-flax) 0px,
+      var(--selvedge-gold) 4px,
+      var(--selvedge-brown) 6px,
+      var(--selvedge-gold) 8px,
+      var(--selvedge-flax) 12px) 8;
+  /* Inner seam: the outer 1px of the padding is the bound edge where the cloth
+     meets the selvedge, and the inner 1px is the same woven ground as every
+     interior gap, so the 1px cell rhythm carries right to the edge. */
+  padding: 2px;
+  box-shadow: inset 0 0 0 1px var(--selvedge-seam);
 }
 .cell {
   display: flex; align-items: center; justify-content: center;
