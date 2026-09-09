@@ -362,6 +362,22 @@ body {
   background: radial-gradient(ellipse at top, #fbf3df 0%, rgba(248, 240, 220, .85) 72%);
   border: 2px solid var(--gold);
   box-shadow: inset 0 0 26px rgba(168, 123, 30, .13);
+  transition: border-color .5s ease, box-shadow .5s ease;
+}
+
+/* Completing a quatrain (PER-22). The moment is the poem itself arriving in
+   view — src/app.js scrolls this card to the middle of the viewport once, on
+   the transition onto a fourth line — so the only flourish here is the card's
+   own frame warming and then cooling again. Deliberately not an overlay, a
+   modal, a seal or a covering pseudo-element: nothing may sit over
+   .poem-chinese at any width, least of all at 375px where the sticky controls
+   bar already holds the top of the screen. border-color and box-shadow cost no
+   layout, so the poem cannot reflow as it lands. */
+.poem-chinese.is-complete {
+  border-color: var(--vermillion);
+  box-shadow:
+    inset 0 0 26px rgba(168, 123, 30, .26),
+    0 0 0 4px var(--gold-glow);
 }
 .poem {
   margin: 0;
@@ -465,4 +481,8 @@ footer.credits a { color: var(--gold-ink); }
   .controls button:active:not(:disabled) { transform: none; }
   /* Second line of defence: src/app.js also withholds the class outright. */
   .thread .strand-drawing { animation: none; stroke-dashoffset: 0; }
+  /* The completed quatrain still gets its warmed frame — it just arrives
+     outright, with no transition, transform or animation. src/app.js matches
+     this by revealing immediately and scrolling with behavior 'auto'. */
+  .poem-chinese, .poem-chinese.is-complete { transition: none; animation: none; transform: none; }
 }

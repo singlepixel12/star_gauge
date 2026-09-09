@@ -42,9 +42,11 @@ test('drawThread and render default to no animation', () => {
     /function drawThread\(\{\s*animateNewest = false\s*\} = \{\}\)/,
     'drawThread takes an explicit animateNewest intent, off by default',
   );
+  // PER-22 adds a second, independent intent (revealCompletion); the animation
+  // intent must stay separate from it and stay off by default.
   assert.match(
     appJs,
-    /function render\(\{\s*animateNewest = false\s*\} = \{\}\)/,
+    /function render\(\{\s*animateNewest = false,[^}]*\} = \{\}\)/,
     'render takes the same intent, off by default',
   );
   assert.match(
@@ -60,7 +62,7 @@ test('only a successful addLine asks for animation', () => {
   assert.match(handler[0], /=\s*selection\.addLine\(dir\)/, "the handler keeps addLine's success flag");
   assert.match(
     handler[0],
-    /render\(\{\s*animateNewest:\s*added\s*\}\)/,
+    /render\(\{\s*animateNewest:\s*added\b/,
     'animation is requested only when the line was actually committed',
   );
 
@@ -104,10 +106,34 @@ test('drawThread marks only the newest segment, and only a strand', () => {
     /class: drawNewest && isNewest \? 'strand strand-drawing' : 'strand'/,
     'older strands render final; only the newest carries the drawing class',
   );
+  // Only one place in the app may *put* the drawing class on anything. A bare
+  // count of the string no longer says that: PER-22's completion reveal reads
+  // the class back with querySelector to learn when the strand has finished
+  // drawing, which is a lookup, not an assignment. So the read-only lookups are
+  // resolved away first and the assignments are counted — the contract keeps its
+  // teeth (a second assignment anywhere still fails) without being weakened to
+  // "at most two occurrences".
+  const LOOKUP = /\.(?:querySelectorAll|querySelector|closest|matches|getElementsByClassName)\(\s*['"][^'"]*['"]\s*\)/g;
+  assert.match(appJs, LOOKUP, 'sanity: the lookup form this strips really occurs');
+  const assignments = appJs.replace(LOOKUP, '.LOOKUP()');
   assert.equal(
-    (appJs.match(/strand-drawing/g) ?? []).length,
+    (assignments.match(/strand-drawing/g) ?? []).length,
     1,
     'nothing else — knots, cells, the thread root — gets the drawing class',
+  );
+  // And that one assignment is the class attribute built above, not a
+  // classList write that could stack the class onto an already-drawn strand.
+  assert.doesNotMatch(
+    appJs,
+    /(?:classList\.(?:add|toggle)|setAttribute\(\s*'class')[^)]*strand-drawing/,
+    'the class is only ever set when the strand is created',
+  );
+  // The surviving occurrence is inside drawThread, so no other function can be
+  // the one place that assigns it.
+  assert.equal(
+    (functionBody(assignments, 'drawThread').match(/strand-drawing/g) ?? []).length,
+    1,
+    'the single assignment lives in drawThread',
   );
   assert.match(draw, /pathLength: '1'/, 'dash units are normalised so all 8 directions take equal time');
 });
