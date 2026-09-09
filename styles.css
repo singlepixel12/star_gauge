@@ -168,8 +168,12 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
   mix-blend-mode: multiply;
 }
 .thread .strand { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-/* Direction: each segment's gradient runs pale at its start, deep at its end. */
-.thread .strand-from { stop-color: var(--gold-soft); stop-opacity: .45; }
+/* Direction: each segment's gradient runs soft gold at its start, deep ink
+   at its end. That colour shift alone carries the direction: the start is held
+   at .9 rather than faded, because under the overlay's multiply blend a faint
+   start let the opening of every strand sink into the cell wash before the eye
+   could pick up where the thread begins. */
+.thread .strand-from { stop-color: var(--gold-soft); stop-opacity: .9; }
 .thread .strand-to   { stop-color: var(--gold-ink);  stop-opacity: .95; }
 /* Knots are rings, so the character inside a junction is never covered. */
 .thread .knot { fill: none; stroke: var(--vermillion); stroke-width: 2; }
