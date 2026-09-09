@@ -122,6 +122,9 @@ test('styles.css: the hero compacts on small screens, grid behaviour preserved',
 
   assert.match(css, /@media \(pointer: coarse\)[\s\S]*?--compass-btn:\s*44px/,
     'coarse-pointer compass buttons stay >=44px');
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.cell\s*\{\s*transition:\s*none/,
+  // Matches .cell wherever it sits in the selector list: other tickets add their
+  // own rules to this block (PER-14 the controls, PER-23 the thread), so pinning
+  // ".cell {" exactly would fail on a change that strengthens reduced motion.
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.cell[^{]*\{[^}]*transition:\s*none/,
     'reduced-motion handling is preserved');
 });
