@@ -145,7 +145,10 @@ test('styles.css: the strand is drawn by a stroke-dash animation', () => {
 test('styles.css: prefers-reduced-motion disables the draw', () => {
   const block = CSS_NO_COMMENTS.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/);
   assert.ok(block, 'the reduced-motion media block is still present');
-  assert.match(block[0], /\.cell\s*\{\s*transition:\s*none;\s*\}/, 'the pre-existing cell rule survives');
+  // Matches .cell wherever it sits in the selector list: PER-14 joins the
+  // controls to this rule, so pinning ".cell {" alone would fail on a change
+  // that widens reduced-motion cover rather than removing it.
+  assert.match(block[0], /\.cell[^{]*\{[^}]*transition:\s*none/, 'the pre-existing cell rule survives');
   const rule = block[0].match(/\.thread \.strand-drawing\s*\{([^}]*)\}/);
   assert.ok(rule, 'reduced motion targets the drawing strand');
   assert.match(rule[1], /animation:\s*none/, 'no animation under reduced motion');

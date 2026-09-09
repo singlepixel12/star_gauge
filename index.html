@@ -39,7 +39,12 @@
     <section class="controls" aria-label="controls">
       <button id="undo" type="button" disabled>Undo line</button>
       <button id="reset" type="button" disabled>Reset</button>
-      <label class="toggle"><input id="regions-toggle" type="checkbox" /> Colour regions <span class="hint">(stylized)</span></label>
+      <!-- Native button toggle, not a checkbox: it takes the same silk-and-gold
+           treatment as Undo/Reset and keeps keyboard activation for free. -->
+      <button id="regions-toggle" class="toggle" type="button" aria-pressed="false">
+        <span class="toggle-mark" aria-hidden="true"></span>
+        <span class="toggle-text">Colour regions <span class="hint">(stylized)</span></span>
+      </button>
       <span id="progress" class="progress" role="status">Tap a character to begin.</span>
     </section>
 
