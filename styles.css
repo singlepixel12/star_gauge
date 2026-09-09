@@ -180,6 +180,22 @@ header .latin { font-size: 1rem; color: var(--faded); letter-spacing: .05em; }
 .thread .knot-start { fill: none; stroke: var(--vermillion); stroke-width: 2.5; }
 .thread .knot-start-inner { fill: none; stroke: var(--gold); stroke-width: 1.5; }
 .thread .knot-head { fill: var(--vermillion); stroke: none; }
+/* The newest strand is drawn on rather than appearing. Only the segment just
+   committed carries .strand-drawing (see drawThread in src/app.js), so the
+   rebuilt overlay never replays strands the reader has already watched.
+   Dash values are in pathLength units (the polyline sets pathLength="1"), so
+   every direction takes the same time. Stroke properties only: no transform,
+   opacity, filter or will-change, which would give .thread or a child its own
+   stacking context and break the mix-blend-mode: multiply above. */
+@keyframes thread-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.thread .strand-drawing {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: thread-draw 1.2s cubic-bezier(.22, .61, .36, 1) both;
+}
 
 /* 8-way compass, absolutely positioned over the junction cell */
 .compass {
@@ -292,4 +308,6 @@ footer.credits a { color: var(--gold-ink); }
 /* Matches the REDUCED_MOTION handling in src/app.js (smooth scroll → auto) */
 @media (prefers-reduced-motion: reduce) {
   .cell { transition: none; }
+  /* Second line of defence: src/app.js also withholds the class outright. */
+  .thread .strand-drawing { animation: none; stroke-dashoffset: 0; }
 }
