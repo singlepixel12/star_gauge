@@ -197,7 +197,7 @@ body {
 /* Grid inside a pannable viewport; frame padding leaves room for the compass at edges */
 .grid-viewport {
   overflow: auto;
-  max-height: 74vh;
+  max-height: 74dvh;
   border: 3px double var(--gold);
   border-radius: 6px;
   background: var(--silk-deep);
@@ -454,7 +454,7 @@ footer.credits a { color: var(--gold-ink); }
   }
   .controls button { padding: .4rem .6rem; }
   .progress { grid-column: 1 / -1; }
-  .grid-viewport { max-height: 60vh; }
+  .grid-viewport { max-height: 60dvh; }
   .output { grid-template-columns: 1fr; }
   .poem-chinese { padding: 1.1rem 1rem; }
   .poem { letter-spacing: .25em; }

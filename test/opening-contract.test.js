@@ -118,7 +118,9 @@ test('styles.css: the hero compacts on small screens, grid behaviour preserved',
   assert.match(mobile[0], /\.opening\s*\{[^}]*grid-template-columns:\s*1fr/, 'the hero collapses to one column');
   assert.match(mobile[0], /\.opening-mark\s*\{[^}]*font-size/, 'the seal shrinks with it');
   assert.match(mobile[0], /--cell:\s*30px/, 'the smaller cell size is untouched');
-  assert.match(mobile[0], /\.grid-viewport\s*\{[^}]*max-height/, 'the grid viewport still caps its height');
+  assert.match(css, /\.grid-viewport\s*\{[^}]*max-height:\s*74dvh/, 'the base grid viewport uses the dynamic viewport height');
+  assert.match(mobile[0], /\.grid-viewport\s*\{[^}]*max-height:\s*60dvh/, 'the mobile grid viewport uses the dynamic viewport height');
+  assert.match(css, /\.grid-frame\s*\{[^}]*padding:\s*56px/, 'the compass clearance padding is preserved');
 
   assert.match(css, /@media \(pointer: coarse\)[\s\S]*?--compass-btn:\s*44px/,
     'coarse-pointer compass buttons stay >=44px');
