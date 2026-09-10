@@ -6,6 +6,7 @@ import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
 import { pathToThreadGeometry } from './thread-path.js';
 import { nextRegionsState } from './controls.js';
+import { isQuatrainMilestone } from './milestone.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -33,6 +34,8 @@ const promptTextEl = document.getElementById('prompt-text');
 const copyPromptBtn = document.getElementById('copy-prompt');
 const translateBtn = document.getElementById('translate');
 const englishHelpEl = document.getElementById('english-help');
+// The card the finished poem sits in — the thing the completion moment reveals.
+const poemCardEl = poemZhEl.closest('.poem-chinese');
 
 const cellEls = []; // cellEls[row][col]
 const compassBtns = new Map(); // dir.id -> button
@@ -76,8 +79,13 @@ function buildCompass() {
       clearPreview();
       // Only a line that was actually committed is drawn on; a rejected
       // direction re-renders unchanged and must not re-animate anything.
+      const before = selection.lineCount();
       const added = selection.addLine(dir);
-      render({ animateNewest: added });
+      // The compass is the only place a quatrain can be *completed*, so it is
+      // the only place that asks for the reveal — and only for the step that
+      // actually landed on a multiple of four.
+      const revealCompletion = added && isQuatrainMilestone(before, selection.lineCount());
+      render({ animateNewest: added, revealCompletion });
     });
     btn.addEventListener('mouseenter', () => previewLine(dir));
     btn.addEventListener('focus', () => previewLine(dir));
@@ -220,7 +228,79 @@ function drawThread({ animateNewest = false } = {}) {
   threadEl.append(defs, strands, knots);
 }
 
-function render({ animateNewest = false } = {}) {
+// --- Quatrain completion moment -----------------------------------------
+
+// Landing on a fourth line is the payoff, so the app shows the reader the thing
+// they just made: the finished poem is scrolled into view once, and the card it
+// sits in warms for a few seconds. Nothing is laid over .poem-chinese — no
+// overlay, modal or covering pseudo-element — because at 375px the sticky
+// controls bar already owns the top of the screen and the poem must stay
+// readable underneath it. #progress (role="status") remains the announcement.
+//
+// This is the one render that moves the page on its own, so it is careful about
+// contending with positionCompass(): the completion render positions the
+// compass without scrolling (see render), and this scrolls the poem instead.
+// The poem is only revealed once the newest strand has finished drawing, so the
+// two PER-23 motions read as one gesture rather than racing each other.
+const REVEAL_FALLBACK_MS = 1600; // > the 1.2s strand draw, if animationend never lands
+const REVEAL_REST_MS = 2600;     // how long the card keeps its completion warmth
+
+// Bumped by anything that supersedes a pending reveal, so a delayed reveal that
+// was already in flight can tell that it is stale and do nothing.
+let revealGeneration = 0;
+let revealTimer = null;
+let revealStrand = null;
+let onStrandDrawn = null;
+let revealRestTimer = null;
+
+// Drops a reveal that has not fired yet, without touching one that already has.
+function clearPendingReveal() {
+  revealGeneration++;
+  clearTimeout(revealTimer);
+  revealTimer = null;
+  if (revealStrand && onStrandDrawn) revealStrand.removeEventListener('animationend', onStrandDrawn);
+  revealStrand = null;
+  onStrandDrawn = null;
+}
+
+// Every render that is not itself a completion calls this: undo, reset, picking
+// a start, and an ordinary fifth line all end the moment, so the page can never
+// scroll or glow after the user has moved on.
+function endCompletionMoment() {
+  clearPendingReveal();
+  clearTimeout(revealRestTimer);
+  revealRestTimer = null;
+  poemCardEl.classList.remove('is-complete');
+}
+
+function startCompletionReveal() {
+  endCompletionMoment();
+  const generation = revealGeneration;
+  // Under reduced motion no strand is drawing and nothing is waited on: the
+  // poem is simply already there, and the scroll below jumps outright.
+  if (REDUCED_MOTION) return revealCompletedPoem(generation);
+  const strand = threadEl.querySelector('.strand-drawing');
+  if (!strand) return revealCompletedPoem(generation);
+  revealStrand = strand;
+  onStrandDrawn = () => revealCompletedPoem(generation);
+  strand.addEventListener('animationend', onStrandDrawn, { once: true });
+  revealTimer = setTimeout(onStrandDrawn, REVEAL_FALLBACK_MS);
+}
+
+function revealCompletedPoem(generation) {
+  if (generation !== revealGeneration) return; // superseded — undo, reset, or a newer line
+  clearPendingReveal(); // whichever of the listener and the timer did not fire
+  poemCardEl.classList.add('is-complete');
+  // block: 'center' rather than a pinned offset — the poem lands in the middle
+  // of the viewport, clear of the sticky controls bar at every width.
+  poemCardEl.scrollIntoView({ block: 'center', behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
+  revealRestTimer = setTimeout(() => {
+    poemCardEl.classList.remove('is-complete');
+    revealRestTimer = null;
+  }, REVEAL_REST_MS);
+}
+
+function render({ animateNewest = false, revealCompletion = false } = {}) {
   clearPreview();
   for (const el of gridEl.querySelectorAll('.in-line, .junction')) {
     el.classList.remove('in-line', 'junction');
@@ -234,7 +314,10 @@ function render({ animateNewest = false } = {}) {
     cellEls[anchor.row][anchor.col].classList.add('junction');
     const valid = new Set(validDirectionsFrom(anchor, selection.isPivot()).map((d) => d.id));
     for (const [id, btn] of compassBtns) btn.disabled = !valid.has(id);
-    positionCompass(anchor);
+    // The compass is repositioned as always, but on a completion render it does
+    // not scroll: the poem reveal below owns the one scroll, and two competing
+    // scrolls would fight over where the page finally settles.
+    positionCompass(anchor, { scroll: !revealCompletion });
   } else {
     compassEl.hidden = true;
   }
@@ -266,6 +349,10 @@ function render({ animateNewest = false } = {}) {
     promptStatusEl.textContent = n === 0 ? '' : `Add ${needed} more line${needed === 1 ? '' : 's'} to complete the quatrain.`;
     copyPromptBtn.disabled = true;
   }
+
+  // Last, so the poem the reveal scrolls to is the one this render just wrote.
+  if (revealCompletion) startCompletionReveal();
+  else endCompletionMoment();
 }
 
 async function onCopyPrompt() {
@@ -306,6 +393,13 @@ render();
 // positionCompass()'s scrollIntoView and yank the user's pan position.
 if (typeof ResizeObserver !== 'undefined') {
   new ResizeObserver(() => {
+    // A pending completion reveal is waiting on a strand this redraw is about
+    // to replace: the element it listens to is discarded, and the fallback
+    // timer would otherwise fire later and scroll the page in the middle of a
+    // resize or an orientation change. The moment belongs to the move that
+    // earned it, not to a resize, so it is dropped here. A reveal that already
+    // fired keeps its warmed frame — only what has not happened yet is cancelled.
+    clearPendingReveal();
     drawThread();
     const anchor = selection.currentAnchor();
     if (anchor) positionCompass(anchor, { scroll: false });
