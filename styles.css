@@ -322,7 +322,15 @@ body {
   animation: thread-draw 1.2s cubic-bezier(.22, .61, .36, 1) both;
 }
 
-/* 8-way compass, absolutely positioned over the junction cell */
+/* 8-way compass, absolutely positioned over the junction cell.
+   PER-26: the rose is *open*. The old buttons were near-opaque silk discs, so
+   every one of them sat on top of the very character it was offering — the
+   reader chose a direction blind. The geometry is untouched (the same 3×3 of
+   --compass-btn cells with the junction showing through the hole); what changes
+   is that each button is now a ring rather than a lid: no fill, and its arrow
+   pushed out to the rim it points at, clear of the glyph in the middle of the
+   cell underneath. Everything painted over a character — ring, halo, arrow,
+   hover wash — is either outside the glyph's box or translucent. */
 .compass {
   position: absolute; z-index: 10;
   display: grid;
@@ -333,14 +341,53 @@ body {
 }
 .compass button {
   pointer-events: auto;
-  font-size: 1rem; line-height: 1; cursor: pointer;
-  background: rgba(243, 232, 208, .92);
-  color: var(--ink);
-  border: 1px solid var(--gold); border-radius: 50%;
-  box-shadow: 0 1px 4px rgba(43, 33, 24, .35);
+  /* Flex so the arrow — a bare text node, hence an anonymous flex item — can be
+     parked against the rim instead of centred over the character. */
+  display: flex; align-items: center; justify-content: center;
+  padding: 1px;
+  font-size: .78rem; line-height: 1; cursor: pointer;
+  background: none;     /* the character below is the whole point of the choice */
+  color: var(--gold-ink);
+  border: 1.5px solid var(--gold); border-radius: 50%;
+  /* Two pale rings hugging the border, in and out. They lift the rose off the
+     woven ground the way the old drop shadow did, but they ride the rim — a
+     circle of radius ~19px around a ~22px glyph — instead of covering it. */
+  box-shadow:
+    0 0 0 2px rgba(252, 248, 238, .55),
+    inset 0 0 0 2px rgba(252, 248, 238, .45);
+  /* The arrow now crosses ink rather than its own silk plate, so it carries a
+     halo of cell colour instead. */
+  text-shadow: 0 0 3px var(--cell-bg), 0 0 2px var(--cell-bg);
 }
-.compass button:hover:not(:disabled), .compass button:focus-visible { background: var(--gold-glow); }
-.compass button:disabled { opacity: .2; cursor: not-allowed; }
+/* Each arrow rides the rim it points at: outward, off the character in the
+   centre of the cell, and reinforcing the direction it commits to. The position
+   in the 3×3 *is* the direction, so the placement is read off the grid rather
+   than restated per button — DOM order is fixed by buildCompass() in
+   src/app.js: nw n ne / w hole e / sw s se. */
+.compass button:nth-child(3n + 1) { justify-content: flex-start; }  /* west column */
+.compass button:nth-child(3n + 2) { justify-content: center; }      /* centre column */
+.compass button:nth-child(3n)     { justify-content: flex-end; }    /* east column */
+.compass button:nth-child(-n + 3) { align-items: flex-start; }      /* north row */
+.compass button:nth-child(n + 4):nth-child(-n + 6) { align-items: center; }
+.compass button:nth-child(n + 7) { align-items: flex-end; }         /* south row */
+/* Hover and focus tint the ring and the arrow; the wash stays faint enough to
+   read a glyph through, and the hovered line is already previewed on the grid. */
+.compass button:hover:not(:disabled), .compass button:focus-visible {
+  background: rgba(248, 227, 154, .22);
+  border-color: var(--gold-ink);
+  color: var(--vermillion);
+}
+/* Without a fill there is no plate to invert, so the keyboard ring is its own
+   mark: vermillion, held clear of the rim. */
+.compass button:focus-visible { outline: 3px solid var(--vermillion); outline-offset: 2px; }
+/* Unavailable directions: faded as before — a fifth of an opaque disc was almost
+   invisible, a third of a ring is the same weight — and the rim breaks, so the
+   state is not carried by opacity alone. */
+.compass button:disabled {
+  opacity: .35; cursor: not-allowed;
+  border-style: dashed;
+  box-shadow: none; text-shadow: none;
+}
 .compass .hole { visibility: hidden; }
 
 /* Output area — the extracted poem is the payoff; the other two cards are utilities. */
