@@ -23,6 +23,25 @@
   --selvedge-gold: #bd9c56;
   --selvedge-brown: #8b7145;
   --selvedge-seam: #9c8150;
+  /* Silk sheen (PER-27). One broad, low-frequency gradient, not per-cell noise
+     and not a pixel-scale stripe: the whole 29x29 cloth is lit once, on the
+     diagonal, the way a bolt of silk is. Each cell paints this same
+     non-repeating image at --sheen-span (29 cells across) and shows only its own
+     1/29 slice of it, so the highlight bands cross the grid unbroken. See
+     src/silk.js for the positioning arithmetic.
+     The alphas are deliberately small: over --cell-bg the sheen's entire range
+     is about #f5efe0 to #fdfaf1, so no glyph loses measurable contrast against
+     --ink and the six region tints still read as themselves underneath it.
+     Ramps only, no hard stops, and a period wider than the cloth's cells — there
+     is nothing here fine enough to shimmer or moire at fractional device pixels,
+     at --cell: 36px or 30px. */
+  --sheen-span: calc(2900% + 28px);  /* 29 cells + 28 one-pixel gutters */
+  --silk-sheen: linear-gradient(112deg,
+    rgba(203, 176, 120, .15) 0%,
+    rgba(255, 253, 246, .30) 21%,
+    rgba(205, 178, 124, .11) 44%,
+    rgba(255, 252, 244, .26) 67%,
+    rgba(200, 172, 116, .16) 100%);
   --ink: #241a11;
   --faded: #5f5140;
   --vermillion: #b5402c;
@@ -250,7 +269,18 @@ body {
 }
 .cell {
   display: flex; align-items: center; justify-content: center;
-  background: var(--cell-bg);
+  /* Fill and texture are two separate layers (PER-27), which is what lets every
+     region tint and every selection state below re-point --cell-fill alone and
+     keep the shared sheen: none of them may use the background shorthand, or
+     they would drop the cloth out from under themselves. */
+  --cell-fill: var(--cell-bg);
+  background-color: var(--cell-fill);
+  background-image: var(--silk-sheen);
+  background-repeat: no-repeat;
+  background-size: var(--sheen-span) var(--sheen-span);
+  /* buildGrid() stamps --silk-x/--silk-y per cell; the 50% fallback is a flat
+     mid-sheen if the script has not run. */
+  background-position: var(--silk-x, 50%) var(--silk-y, 50%);
   font-family: "Noto Serif TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "SimSun", serif;
   font-size: var(--glyph); line-height: 1;
   cursor: pointer; user-select: none;
@@ -265,20 +295,25 @@ body {
    highlight on touch, where there is no pointer to move away. */
 @media (hover: hover) {
   .cell:not(.center):not(.in-line):not(.junction):not(.preview):hover {
-    background: var(--gold-glow);
+    --cell-fill: var(--gold-glow);
     box-shadow: inset 0 0 0 1px var(--gold);
   }
 }
 .cell.center {
   color: var(--vermillion); font-weight: 700; cursor: default;
   font-size: calc(var(--glyph) + 4px);
-  background: var(--center-glow);
+  /* The inert heart wears its own halo instead of the cloth's sheen, and the
+     halo is itself a gradient — so it has to reset the sheen's 29-cell sizing
+     and slice offset, or it would be blown up to a flat patch of pink. */
+  background-image: var(--center-glow);
+  background-size: auto;
+  background-position: center;
 }
 /* The traced path is drawn by the SVG thread overlay below; the cell keeps only
    a faint wash so a flat fill can't compete with the thread's own gradient. */
-.cell.in-line { background: var(--gold-wash); font-weight: 600; }
+.cell.in-line { --cell-fill: var(--gold-wash); font-weight: 600; }
 .cell.junction { outline: 3px solid var(--vermillion); outline-offset: -3px; z-index: 1; }
-.cell.preview { background: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
+.cell.preview { --cell-fill: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
 
 /* Gold-thread overlay: an SVG sibling of #grid inside .grid-frame, so it is
    anchored to the frame and stays aligned while .grid-viewport pans. */
@@ -420,18 +455,23 @@ footer.credits {
 }
 footer.credits a { color: var(--gold-ink); }
 
-/* Stylized colour-region tints (visible only when body has .show-regions) */
-.show-regions .cell.r-center     { background: #f0d5cd; }
-.show-regions .cell.r-band-inner { background: #f1decb; }
-.show-regions .cell.r-band-mid   { background: #e6e3c8; }
-.show-regions .cell.r-band-outer { background: #d9e0d5; }
-.show-regions .cell.r-band-far   { background: #dcd6e0; }
-.show-regions .cell.r-border     { background: #e8dcc0; }
-/* The centre halo must survive the r-center tint (higher specificity, same value) */
-.show-regions .cell.r-center.center { background: var(--center-glow); }
+/* Stylized colour-region tints (visible only when body has .show-regions).
+   The six colours are unchanged; they are now the cell's *fill*, so the one
+   silk sheen carries across the regions instead of each band reading flat. */
+.show-regions .cell.r-center     { --cell-fill: #f0d5cd; }
+.show-regions .cell.r-band-inner { --cell-fill: #f1decb; }
+.show-regions .cell.r-band-mid   { --cell-fill: #e6e3c8; }
+.show-regions .cell.r-band-outer { --cell-fill: #d9e0d5; }
+.show-regions .cell.r-band-far   { --cell-fill: #dcd6e0; }
+.show-regions .cell.r-border     { --cell-fill: #e8dcc0; }
+/* The centre halo must survive the r-center tint. The halo is a background-image
+   on .cell.center and the tint only sets a fill, so it now survives by kind as
+   well as by cascade; the fill is restored here so the halo never mixes with a
+   region colour if it is ever made translucent. */
+.show-regions .cell.r-center.center { --cell-fill: var(--cell-bg); }
 /* Path/selection highlights must win over region tints */
-.show-regions .cell.in-line { background: var(--gold-wash); }
-.show-regions .cell.preview { background: var(--gold-glow); }
+.show-regions .cell.in-line { --cell-fill: var(--gold-wash); }
+.show-regions .cell.preview { --cell-fill: var(--gold-glow); }
 
 /* Responsive: small screens & touch */
 @media (max-width: 600px) {
