@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>璇璣圖 · Star Gauge</title>
+  <title>Star Gauge</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -22,17 +22,22 @@
         <!-- Expands the lede above; deliberately does not restate it. The
              setup — 4th century, 841 characters, the distant husband, the
              many directions — is already told there. -->
-        <p>Her name was Su Hui (蘇蕙); his was Dou Tao (竇滔). She wove in five
+        <p>Her name was Su Hui (<span lang="zh-Hant">蘇蕙</span>); his was Dou Tao (<span lang="zh-Hant">竇滔</span>). She wove in five
         colours of silk, the colours marking different ways the cloth could be
         read. The poems hidden in it are usually counted at nearly three
         thousand, and they turn on longing, separation and constancy. The centre
-        character, 心 ("heart"), belongs to every reading and to none.</p>
+        character, <span lang="zh-Hant">心</span> ("heart"), belongs to every reading and to none.</p>
       </details>
     </div>
     <!-- The centre character as a quiet seal: same halo as the grid's inert 心,
-         decorative only — never a control, and never part of a selected line. -->
-    <p class="opening-mark" lang="zh-Hant" role="img"
-       aria-label="心 — the heart character at the centre of the grid, belonging to every reading and to none">心</p>
+         decorative only — never a control, and never part of a selected line.
+         The accessible name is entirely English and describes the character
+         instead of quoting it: an aria-label is a flat string, so the nested
+         lang="zh-Hant" span cannot scope anything inside it, and a Chinese
+         glyph there would be announced under the root en. The visible glyph
+         keeps the span, and so still declares itself Traditional Chinese. -->
+    <p class="opening-mark" role="img"
+       aria-label="The heart character at the centre of the grid, belonging to every reading and to none"><span lang="zh-Hant">心</span></p>
   </header>
 
   <main>
@@ -50,7 +55,7 @@
 
     <section class="grid-viewport" aria-label="poem grid">
       <div class="grid-frame">
-        <div id="grid" class="grid"></div>
+        <div id="grid" class="grid" lang="zh-Hant"></div>
         <!-- Gold-thread overlay: anchored to the frame, so it pans with the grid.
              Purely decorative — the poem itself is read from the cells. -->
         <svg id="thread" class="thread" aria-hidden="true" focusable="false"></svg>
@@ -61,7 +66,7 @@
     <section class="output" id="output" hidden>
       <div class="card poem-chinese">
         <h2>Poem so far</h2>
-        <pre id="poem-zh" class="poem"></pre>
+        <pre id="poem-zh" class="poem" lang="zh-Hant"></pre>
       </div>
       <div class="card prompt-block">
         <h2>Translation prompt</h2>
@@ -81,7 +86,7 @@
   </main>
 
   <footer class="credits">
-    Text: <a href="https://zh.wikisource.org/wiki/%E7%92%87%E7%8E%91%E5%9C%96">Chinese Wikisource, 璇璣圖</a>
+    Text: <a href="https://zh.wikisource.org/wiki/%E7%92%87%E7%8E%91%E5%9C%96">Chinese Wikisource, <span lang="zh-Hant">璇璣圖</span></a>
     · Background: <a href="https://en.wikipedia.org/wiki/Star_Gauge">Wikipedia, Star Gauge</a>
   </footer>
 

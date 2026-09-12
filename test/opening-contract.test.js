@@ -52,7 +52,14 @@ test('index.html: the 心 motif is decorative and accessible, never a control', 
   assert.match(mark, />心</, 'the mark is the heart character itself');
   assert.match(mark, /lang="zh-Hant"/, 'the mark is tagged zh-Hant');
   assert.match(mark, /role="img"/, 'exposed as an image, not as text noise');
-  assert.match(mark, /aria-label="[^"]*心[^"]*"/, 'the mark carries its own context');
+  assert.match(mark, /<span lang="zh-Hant">心<\/span>/,
+    'the visible glyph is the one carrying the Traditional-Chinese scope');
+  const label = mark.match(/aria-label="([^"]*)"/);
+  assert.ok(label, 'the mark carries its own context');
+  // An aria-label is a flat string: the span inside cannot language-scope any of
+  // it, so the name describes the character in English rather than quoting it.
+  assert.doesNotMatch(label[1], /\p{Script=Han}/u, 'the accessible name is English throughout');
+  assert.match(label[1], /heart character/i, 'and it still says which character this is');
   assert.doesNotMatch(mark, /<button|tabindex|onclick/i, 'the mark is not interactive');
 });
 
