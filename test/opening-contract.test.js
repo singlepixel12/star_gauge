@@ -120,7 +120,16 @@ test('styles.css: the hero compacts on small screens, grid behaviour preserved',
   assert.match(mobile[0], /--cell:\s*30px/, 'the smaller cell size is untouched');
   assert.match(css, /\.grid-viewport\s*\{[^}]*max-height:\s*74dvh/, 'the base grid viewport uses the dynamic viewport height');
   assert.match(mobile[0], /\.grid-viewport\s*\{[^}]*max-height:\s*60dvh/, 'the mobile grid viewport uses the dynamic viewport height');
+  // The frame padding is the compass's clearance at a grid edge, so it stays
+  // pinned at both sizes. Neither number is decorative: half a coarse-pointer
+  // compass is 1.5 * 44px of button + 2px of gap = 68px, and an edge cell's
+  // centre already sits 8px selvedge + 2px seam + half a cell inside the grid,
+  // so the frame owes the compass 40px at the 36px desktop cell and 43px at the
+  // 30px mobile cell. 56px and 44px are those minima with the slack the layout
+  // can afford — recompute the sum before moving either.
   assert.match(css, /\.grid-frame\s*\{[^}]*padding:\s*56px/, 'the compass clearance padding is preserved');
+  assert.match(mobile[0], /\.grid-frame\s*\{[^}]*padding:\s*44px/,
+    'mobile trims the frame to the calculated 44px compass clearance, no further');
 
   assert.match(css, /@media \(pointer: coarse\)[\s\S]*?--compass-btn:\s*44px/,
     'coarse-pointer compass buttons stay >=44px');

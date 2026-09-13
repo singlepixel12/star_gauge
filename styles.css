@@ -455,6 +455,15 @@ footer.credits a { color: var(--gold-ink); }
   .controls button { padding: .4rem .6rem; }
   .progress { grid-column: 1 / -1; }
   .grid-viewport { max-height: 60dvh; }
+  /* The frame padding is the compass runway, so it shrinks by calculation, not
+     by taste. At a junction on row 0, row 28, column 0 or column 28 the compass
+     is centred on that edge cell and half its 3x3 footprint hangs past the grid:
+     on coarse pointers each button is 44px (below), so that half is
+     1.5 * 44px + 2px of gap = 68px. The edge cell centre already sits 25px
+     inside the grid outer edge (8px selvedge + 2px seam + 15px half-cell), so
+     44px is the smallest whole padding that still clears the compass — and it
+     hands 12px a side back to the horizontal pan budget. */
+  .grid-frame { padding: 44px; }
   .output { grid-template-columns: 1fr; }
   .poem-chinese { padding: 1.1rem 1rem; }
   .poem { letter-spacing: .25em; }
