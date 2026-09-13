@@ -68,16 +68,25 @@ test('styles.css: default and mobile cell/glyph sizes are unchanged', () => {
 });
 
 test('styles.css: traced cells keep the faint gold wash in both plain and regions mode', () => {
+  // PER-27 split a cell's fill from its silk sheen, so the wash is now carried
+  // by --cell-fill rather than by the background shorthand. Same colour, same
+  // two rules, same cascade — and the shorthand is now *forbidden* here, because
+  // it would blank the woven surface under the thread (see
+  // test/grid-surface-contract.test.js).
   assert.match(
     rule('.cell.in-line'),
-    /background:\s*var\(--gold-wash\)/,
+    /--cell-fill:\s*var\(--gold-wash\)/,
     'a traced cell is a faint wash, so the thread gradient is what the eye follows',
   );
   assert.match(
     rule('.show-regions .cell.in-line'),
-    /background:\s*var\(--gold-wash\)/,
+    /--cell-fill:\s*var\(--gold-wash\)/,
     'the same wash must win over every region tint',
   );
+  for (const selector of ['.cell.in-line', '.show-regions .cell.in-line']) {
+    assert.doesNotMatch(rule(selector), /(^|[\s;])background:/,
+      `${selector} must not reset the cell's background layers`);
+  }
 });
 
 test('styles.css: .show-regions .cell.in-line is declared after all six region tints', () => {

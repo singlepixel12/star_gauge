@@ -6,6 +6,7 @@ import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
 import { pathToThreadGeometry } from './thread-path.js';
 import { nextRegionsState } from './controls.js';
+import { silkVars } from './silk.js';
 import { isQuatrainMilestone } from './milestone.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
@@ -47,6 +48,12 @@ function buildGrid() {
       const el = document.createElement('div');
       el.className = `cell r-${regionAt(r, c)}`;
       el.textContent = GRID[r][c];
+      // Where this cell sits on the cloth, 0%-100% across the 28 intervals, so
+      // the one broad silk sheen in styles.css runs unbroken from cell to cell
+      // at either --cell size. Position only: the gradient itself is shared CSS.
+      for (const [prop, value] of Object.entries(silkVars(r, c))) {
+        el.style.setProperty(prop, value);
+      }
       if (isCenter({ row: r, col: c })) {
         el.classList.add('center');
       } else {
