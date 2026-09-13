@@ -47,6 +47,7 @@ function buildGrid() {
     for (let c = 0; c < 29; c++) {
       const el = document.createElement('div');
       el.className = `cell r-${regionAt(r, c)}`;
+      el.lang = 'zh-Hant';
       el.textContent = GRID[r][c];
       // Where this cell sits on the cloth, 0%-100% across the 28 intervals, so
       // the one broad silk sheen in styles.css runs unbroken from cell to cell
