@@ -2,7 +2,6 @@
 import { GRID } from './grid-data.js';
 import { DIRECTIONS, SIZE, isCenter, lineCells, validDirectionsFrom } from './geometry.js';
 import { regionAt } from './regions.js';
-import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
 import { reverseReading } from './readings.js';
 import { pathToThreadGeometry } from './thread-path.js';
@@ -10,6 +9,7 @@ import { nextRegionsState } from './controls.js';
 import { silkVars } from './silk.js';
 import { isQuatrainMilestone } from './milestone.js';
 import { CENTER_NOTE, INITIAL_CELL, createRovingFocus } from './grid-navigation.js';
+import { decodePath, encodePath } from './path-codec.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -20,7 +20,11 @@ const LLM_ENABLED = false;
 
 const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const selection = createSelection(GRID);
+// The address is the only memory this app has. Whatever path it carries is
+// replayed through the state machine before the first paint, so a reload — or
+// someone else's link — opens on the trace it names. A fragment that says
+// nothing, or says something malformed, decodes to an ordinary empty cloth.
+let selection = decodePath(location.hash, GRID);
 // Which of the 841 cells is the grid's single tab stop. Kept in a pure module
 // (src/grid-navigation.js) rather than read back off the DOM, so "exactly one
 // cell is in the tab order" is an invariant with one owner: this object decides
@@ -474,9 +478,35 @@ function render({ animateNewest = false, revealCompletion = false } = {}) {
     copyPromptBtn.disabled = true;
   }
 
+  syncLocationHash();
+
   // Last, so the poem the reveal scrolls to is the one this render just wrote.
   if (revealCompletion) startCompletionReveal();
   else endCompletionMoment();
+}
+
+// --- The path in the address ---------------------------------------------
+
+// A traced path that lives only in memory dies on reload, so the fragment is
+// rewritten to match the selection at the end of every render — render being
+// the one thing a pick, a commit, an undo and a reset all finish with, which
+// is why no handler has to remember to save. replaceState rather than a hash
+// assignment: the trace is one evolving state, not a stack of pages to press
+// Back through, and it fires no hashchange back at us. pathname and search are
+// carried over so the rewrite loses neither, and an empty path writes no '#'.
+function syncLocationHash() {
+  const fragment = encodePath(selection.path());
+  if (fragment === location.hash) return;
+  history.replaceState(null, '', `${location.pathname}${location.search}${fragment}`);
+}
+
+// A path that came back from the address was not drawn just now, so it is shown
+// settled: animateNewest is explicitly off — no strand redraws itself on load,
+// which is also what REDUCED_MOTION would demand — and the completion moment is
+// asked for by name, because a link to a finished quatrain should still show
+// the reader the poem it promised. Live tracing keeps its own milestone rules.
+function renderRestoredPath() {
+  render({ animateNewest: false, revealCompletion: selection.canExtract() });
 }
 
 async function onCopyPrompt() {
@@ -511,7 +541,16 @@ englishHelpEl.hidden = LLM_ENABLED;
 
 buildGrid();
 buildCompass();
-render();
+renderRestoredPath();
+
+// A fragment arriving after load — a pasted link, Back onto an earlier trace,
+// a hand-edited address — replaces what is on the cloth in a single render.
+// An unreadable one lands quietly on the empty state, with no dialog and no
+// throw: the reader simply gets a blank cloth to start from.
+window.addEventListener('hashchange', () => {
+  selection = decodePath(location.hash, GRID);
+  renderRestoredPath();
+});
 
 // Cell boxes change with the media query, a window resize, or a late-loading
 // CJK font. Re-measure and redraw only — calling render() here would run

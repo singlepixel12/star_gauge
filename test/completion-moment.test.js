@@ -81,10 +81,18 @@ test('only a successful compass commit requests the completion reveal', () => {
     /render\(\{ animateNewest: added, revealCompletion \}\);/,
     'completion and newest-strand intents travel together from the commit path',
   );
-  assert.equal(
-    (appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? []).length,
-    1,
-    'no other path requests the newest-strand animation',
+  // A path restored from the address (PER-43) names animateNewest as well, but
+  // only to turn it off, so what is counted is the sites that ask for the
+  // strand draw rather than the sites that mention it.
+  const animationRequests = (appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [])
+    .filter((call) => !/animateNewest:\s*false\b/.test(call));
+  assert.equal(animationRequests.length, 1, 'no other path requests the newest-strand animation');
+  // The restored render is the one place completion is asked for outside a live
+  // commit, and it decides from the path itself rather than from a milestone.
+  assert.match(
+    functionBody(appJs, 'renderRestoredPath'),
+    /render\(\{ animateNewest: false, revealCompletion: selection\.canExtract\(\) \}\)/,
+    'a restored quatrain controls its own reveal, without animating',
   );
 });
 
