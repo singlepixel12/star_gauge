@@ -80,7 +80,22 @@
     <section class="output" id="output" hidden>
       <div class="card poem-chinese">
         <h2>Poem so far</h2>
-        <pre id="poem-zh" class="poem" lang="zh-Hant"></pre>
+        <!-- One traced thread, two readings of it. The reverse is derived text,
+             not a second path: there is no reverse thread to trace, nothing to
+             toggle, and the grid, the compass and the prompt know nothing of it.
+             Both readings are live from the first committed line onward. -->
+        <p class="hint reading-note">Read forward as you traced it, and backward —
+        the same thread, read back from its endpoint.</p>
+        <div class="poem-readings">
+          <div class="reading" role="group" aria-labelledby="reading-forward-label">
+            <h3 id="reading-forward-label" class="reading-label">Forward</h3>
+            <pre id="poem-zh" class="poem" lang="zh-Hant"></pre>
+          </div>
+          <div class="reading" role="group" aria-labelledby="reading-reverse-label">
+            <h3 id="reading-reverse-label" class="reading-label">Reverse</h3>
+            <pre id="poem-zh-reverse" class="poem" lang="zh-Hant"></pre>
+          </div>
+        </div>
       </div>
       <div class="card prompt-block">
         <h2>Translation prompt</h2>

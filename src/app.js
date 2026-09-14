@@ -4,6 +4,7 @@ import { DIRECTIONS, SIZE, isCenter, lineCells, validDirectionsFrom } from './ge
 import { regionAt } from './regions.js';
 import { createSelection } from './selection.js';
 import { buildPrompt } from './prompt.js';
+import { reverseReading } from './readings.js';
 import { pathToThreadGeometry } from './thread-path.js';
 import { nextRegionsState } from './controls.js';
 import { silkVars } from './silk.js';
@@ -37,6 +38,9 @@ const resetBtn = document.getElementById('reset');
 const regionsToggle = document.getElementById('regions-toggle');
 const outputEl = document.getElementById('output');
 const poemZhEl = document.getElementById('poem-zh');
+// The same thread read back from its endpoint — derived text, not a second
+// selection, so it has no cells, no thread and no state of its own.
+const poemReverseEl = document.getElementById('poem-zh-reverse');
 const promptStatusEl = document.getElementById('prompt-status');
 const promptTextEl = document.getElementById('prompt-text');
 const copyPromptBtn = document.getElementById('copy-prompt');
@@ -453,10 +457,15 @@ function render({ animateNewest = false, revealCompletion = false } = {}) {
   resetBtn.disabled = !anchor && n === 0;
 
   // Live output: visible from the first committed line onward; never vanishes.
+  // The trace is read once and every reading below is derived from that one
+  // value, so the forward poem, the reverse reading and the prompt cannot drift.
   outputEl.hidden = n === 0;
-  poemZhEl.textContent = selection.extractedLines().join('\n');
+  const extractedLines = selection.extractedLines();
+  poemZhEl.textContent = extractedLines.join('\n');
+  poemReverseEl.textContent = reverseReading(extractedLines).join('\n');
   if (selection.canExtract()) {
-    promptTextEl.value = buildPrompt(selection.extractedLines());
+    // Forward only: the translation prompt asks for the poem as it was traced.
+    promptTextEl.value = buildPrompt(extractedLines);
     promptStatusEl.textContent = '';
     copyPromptBtn.disabled = false;
   } else {
