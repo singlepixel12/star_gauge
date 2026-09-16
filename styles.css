@@ -42,6 +42,21 @@
     rgba(205, 178, 124, .11) 44%,
     rgba(255, 252, 244, .26) 67%,
     rgba(200, 172, 116, .16) 100%);
+  /* Damped sheen for Colour-regions mode (PER-37). Same cloth: same 112deg rake,
+     the same five stops at the same positions, so the bands still cross the grid
+     in exactly the same places and the two modes are the same weave at two
+     strengths. Only the alphas drop, to ~45% of the default. The regions encode
+     Su Hui's five silk colours and are a signal; the sheen is decoration, and at
+     full strength it was lightening each tint and varying one band along its
+     length. At these alphas the brightest stop moves --cell-fill by roughly a
+     tenth rather than a third, so the six bands keep their separation and stay
+     one colour end to end, while the cloth is still visibly lit. */
+  --silk-sheen-regions: linear-gradient(112deg,
+    rgba(203, 176, 120, .07) 0%,
+    rgba(255, 253, 246, .13) 21%,
+    rgba(205, 178, 124, .05) 44%,
+    rgba(255, 252, 244, .12) 67%,
+    rgba(200, 172, 116, .07) 100%);
   --ink: #241a11;
   --faded: #5f5140;
   --vermillion: #b5402c;
@@ -501,6 +516,13 @@ footer.credits {
   color: var(--faded); font-size: .8rem;
 }
 footer.credits a { color: var(--gold-ink); }
+
+/* Colour-regions mode swaps the shared sheen token for its damped twin
+   (PER-37). One declaration on the body: every cell keeps painting
+   var(--silk-sheen) and nothing below needs to know which mode it is in, so the
+   --cell-fill refactor and the centre's halo exception are untouched. Regions
+   off keeps the default token at full strength. */
+.show-regions { --silk-sheen: var(--silk-sheen-regions); }
 
 /* Stylized colour-region tints (visible only when body has .show-regions).
    The six colours are unchanged; they are now the cell's *fill*, so the one
