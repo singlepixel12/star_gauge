@@ -125,6 +125,28 @@ body {
   user-select: none;
 }
 .tagline { color: var(--faded); margin: .55rem 0 .9rem; font-style: italic; }
+/* "Show me one" invitation. It belongs to the introduction, not to the sticky
+   bar: that bar's grid places exactly its own four items, and this is a thing
+   read once rather than a fourth control. Quiet like the rest of the hero —
+   the traced golds stay with the thread — and the caveat rides alongside the
+   button so the demonstration is never mistaken for a scholarly reading. */
+.demo-invite {
+  margin: .55rem 0 .9rem; max-width: 62ch;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem;
+}
+.demo-button {
+  flex: none;
+  font: 500 .85rem/1.2 var(--ui);
+  padding: .4rem .85rem; cursor: pointer;
+  color: var(--ink);
+  background: rgba(252, 248, 238, .72);
+  border: 1px solid var(--gold); border-radius: 999px;
+  transition: border-color .12s ease, background-color .12s ease;
+}
+.demo-button:hover { border-color: var(--gold-ink); background: #fdf7e9; }
+.demo-button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.demo-note { flex: 1 1 26ch; min-width: 0; font-style: italic; line-height: 1.5; }
+
 .about { margin: 0; max-width: 62ch; color: var(--faded); }
 .about summary { cursor: pointer; color: var(--ink); font-style: italic; }
 .about summary:focus-visible {
@@ -614,6 +636,7 @@ footer.credits a { color: var(--gold-ink); }
   }
   .story-lede { margin-top: .6rem; font-size: 1rem; }
   .tagline { margin: .5rem 0 .75rem; }
+  .demo-invite { margin: .5rem 0 .75rem; }
   /* Two rows, always: the three controls share row one and the status spans
      row two, so the bar cannot creep down over the top of a phone screen. */
   .controls {
@@ -676,10 +699,11 @@ footer.credits a { color: var(--gold-ink); }
 @media (pointer: coarse) {
   :root { --compass-btn: 44px; }
   .controls button { min-height: 44px; }
+  .demo-button { min-height: 44px; }
 }
 /* Matches the REDUCED_MOTION handling in src/app.js (smooth scroll → auto) */
 @media (prefers-reduced-motion: reduce) {
-  .cell, .controls button { transition: none; }
+  .cell, .controls button, .demo-button { transition: none; }
   .controls button:active:not(:disabled) { transform: none; }
   /* Second line of defence: src/app.js also withholds the class outright. */
   .thread .strand-drawing { animation: none; stroke-dashoffset: 0; }

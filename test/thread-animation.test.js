@@ -79,13 +79,13 @@ test('only a successful addLine asks for animation', () => {
 test('undo, reset, start and the initial render do not animate', () => {
   assert.match(
     appJs,
-    /undoBtn\.addEventListener\('click', \(\) => \{ selection\.undo\(\); render\(\); \}\)/,
-    'undo re-renders the thread in its final state',
+    /undoBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.undo\(\);\s*render\(\);\s*\}\);/,
+    'undo cancels any walkthrough before re-rendering without animation',
   );
   assert.match(
     appJs,
-    /resetBtn\.addEventListener\('click', \(\) => \{ selection\.reset\(\); render\(\); \}\)/,
-    'reset re-renders without animation',
+    /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
+    'reset cancels any walkthrough before re-rendering without animation',
   );
   assert.match(functionBody(appJs, 'onCellClick'), /render\(\);/, 'picking a start does not animate');
   // The first paint is the restored one (PER-43): it draws whatever the address
