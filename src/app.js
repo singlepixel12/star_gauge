@@ -8,6 +8,7 @@ import { pathToThreadGeometry } from './thread-path.js';
 import { nextRegionsState } from './controls.js';
 import { silkVars } from './silk.js';
 import { isQuatrainMilestone } from './milestone.js';
+import { CENTER_NOTE, INITIAL_CELL, createRovingFocus } from './grid-navigation.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -19,6 +20,12 @@ const LLM_ENABLED = false;
 const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const selection = createSelection(GRID);
+// Which of the 841 cells is the grid's single tab stop. Kept in a pure module
+// (src/grid-navigation.js) rather than read back off the DOM, so "exactly one
+// cell is in the tab order" is an invariant with one owner: this object decides
+// it, setTabStop() applies the two attribute flips it reports, and nothing else
+// writes a cell's tabindex.
+const roving = createRovingFocus(INITIAL_CELL);
 
 const gridEl = document.getElementById('grid');
 const frameEl = gridEl.parentElement;      // .grid-frame — the overlay's anchor
@@ -44,11 +51,31 @@ const compassBtns = new Map(); // dir.id -> button
 function buildGrid() {
   for (let r = 0; r < 29; r++) {
     cellEls[r] = [];
+    // A row group per line of the cloth, so #grid is a real role="grid" with
+    // rows a screen reader can count and speak position from. `.grid-row` is
+    // display: contents (styles.css), which leaves all 841 cells as direct
+    // children of the CSS grid: the 29-column pitch, the 1px gutters and each
+    // cell's slice of the shared sheen are untouched by the grouping.
+    const rowEl = document.createElement('div');
+    rowEl.className = 'grid-row';
+    rowEl.setAttribute('role', 'row');
     for (let c = 0; c < 29; c++) {
       const el = document.createElement('div');
       el.className = `cell r-${regionAt(r, c)}`;
       el.lang = 'zh-Hant';
+      el.setAttribute('role', 'gridcell');
+      // The character *is* the accessible name, read in its own zh-Hant voice.
+      // No English aria-label is written here on purpose (PER-29): the English
+      // instructions live outside the grid and are referenced by id.
       el.textContent = GRID[r][c];
+      // Coordinates travel on the element, so the one delegated key handler can
+      // answer "which cell was that?" without a lookup table.
+      el.dataset.row = r;
+      el.dataset.col = c;
+      // Roving tabindex: all 841 cells are programmatically focusable, exactly
+      // one of them is in the tab order. The grid is therefore a single tab
+      // stop, and Tab still reaches the compass in one press.
+      el.tabIndex = roving.tabIndexFor({ row: r, col: c });
       // Where this cell sits on the cloth, 0%-100% across the 28 intervals, so
       // the one broad silk sheen in styles.css runs unbroken from cell to cell
       // at either --cell size. Position only: the gradient itself is shared CSS.
@@ -57,13 +84,63 @@ function buildGrid() {
       }
       if (isCenter({ row: r, col: c })) {
         el.classList.add('center');
-      } else {
-        el.addEventListener('click', () => onCellClick(r, c));
+        // Navigable, never selectable. The description says why, in English,
+        // from an element outside the zh-Hant subtree; Enter or Space on it
+        // says the same thing again through #progress (see onCellClick).
+        el.setAttribute('aria-describedby', 'center-note');
       }
-      gridEl.appendChild(el);
+      // Every cell gets the same click handler, centre included: onCellClick
+      // already moves the roving tab stop first and only then branches on
+      // isCenter, announcing CENTER_NOTE and returning before touching
+      // selection. A centre-only skip here would leave a click on 心 doing
+      // nothing at all.
+      el.addEventListener('click', () => onCellClick(r, c));
+      rowEl.appendChild(el);
       cellEls[r][c] = el;
     }
+    gridEl.appendChild(rowEl);
   }
+}
+
+// --- Keyboard access to the grid ----------------------------------------
+
+const cellCoords = (el) => ({ row: Number(el.dataset.row), col: Number(el.dataset.col) });
+
+// The only place a cell's tabindex is written after buildGrid, and it writes
+// exactly the two the roving stop reports: the cell losing it and the cell
+// taking it. Nothing here depends on the selection, so a click, a render, an
+// undo and a reset all leave the invariant alone.
+function setTabStop(cell) {
+  const moved = roving.focusOn(cell);
+  if (!moved) return;
+  cellEls[moved.from.row][moved.from.col].tabIndex = -1;
+  cellEls[moved.to.row][moved.to.col].tabIndex = 0;
+}
+
+// Arrow movement: the tab stop and the focus ring travel together. Keeping the
+// new cell on screen is left to the browser's own focus scrolling (the cell's
+// scroll-margin-top tunes it), deliberately rather than a scrollIntoView call
+// of our own, which would compete with positionCompass's smooth scroll.
+function focusCell(cell) {
+  setTabStop(cell);
+  cellEls[cell.row][cell.col].focus();
+}
+
+// One delegated listener for all 841 cells, and scoped to them: #compass is a
+// sibling of #grid, so a keypress on a compass button never arrives here and
+// the eight-way compass keeps its own keyboard behaviour untouched. Arrows the
+// grid owns are consumed (no page scroll, none at the selvedge either); every
+// other key — Tab above all — is left alone.
+function onGridKeyDown(event) {
+  if (event.altKey || event.ctrlKey || event.metaKey) return; // browser/AT shortcuts win
+  const cellEl = event.target instanceof Element ? event.target.closest('.cell') : null;
+  if (!cellEl || !gridEl.contains(cellEl)) return;
+  setTabStop(cellCoords(cellEl)); // the key belongs to the cell it was pressed on
+  const action = roving.handleKey(event.key);
+  if (!action) return;
+  event.preventDefault();
+  if (action.type === 'activate') onCellClick(action.cell.row, action.cell.col);
+  else if (action.moved) focusCell(action.to);
 }
 
 // Compass: 3×3 grid — 8 direction buttons around a hole showing the junction.
@@ -104,9 +181,18 @@ function buildCompass() {
   }
 }
 
+// The one start-selection path. A click on a cell and Enter/Space on the
+// focused cell both land here, so pointer and keyboard cannot drift apart.
 function onCellClick(row, col) {
+  // The tab stop follows the cell the reader just chose, however they chose it:
+  // after a click, Tab still leaves from where they were looking.
+  setTabStop({ row, col });
+  // The centre is navigable but inert, and saying so is the whole answer here.
+  if (isCenter({ row, col })) return announce(CENTER_NOTE);
   if (selection.pickStart({ row, col })) render();
-  // After a start exists, direction choices go through the compass only.
+  // After a start exists, direction choices go through the compass only; the
+  // start is not replaced, and the status says where the reader should go next.
+  else announce(statusMessage());
 }
 
 function previewLine(dir) {
@@ -308,6 +394,33 @@ function revealCompletedPoem(generation) {
   }, REVEAL_REST_MS);
 }
 
+// --- Status announcements ------------------------------------------------
+
+// The one place #progress is written. Every announcement the app makes goes
+// through here — the four state messages below, and the two keyboard answers
+// that are not a state change at all — so role="status" stays the single
+// announcement surface and no code path is ever tempted to move focus to be
+// heard instead.
+function announce(text) {
+  progressEl.textContent = text;
+}
+
+// What the status says about the selection as it now stands. Read by render on
+// every state change, and by the keyboard activation path when a cell press
+// changes nothing and the reader still needs telling where to go next.
+function statusMessage() {
+  const anchor = selection.currentAnchor();
+  const n = selection.lineCount();
+  const needed = selection.linesNeeded();
+  return !anchor
+    ? 'Tap a character to begin.'
+    : n === 0
+      ? 'Now choose a direction on the compass — the line will run 7 characters.'
+      : selection.canExtract()
+        ? `${n} lines — ${n / 4} quatrain${n === 4 ? '' : 's'} complete. Extend by 4 or copy the prompt.`
+        : `${n} line${n === 1 ? '' : 's'} — add ${needed} more to complete the quatrain.`;
+}
+
 function render({ animateNewest = false, revealCompletion = false } = {}) {
   clearPreview();
   for (const el of gridEl.querySelectorAll('.in-line, .junction')) {
@@ -334,13 +447,7 @@ function render({ animateNewest = false, revealCompletion = false } = {}) {
 
   const n = selection.lineCount();
   const needed = selection.linesNeeded();
-  progressEl.textContent = !anchor
-    ? 'Tap a character to begin.'
-    : n === 0
-      ? 'Now choose a direction on the compass — the line will run 7 characters.'
-      : selection.canExtract()
-        ? `${n} lines — ${n / 4} quatrain${n === 4 ? '' : 's'} complete. Extend by 4 or copy the prompt.`
-        : `${n} line${n === 1 ? '' : 's'} — add ${needed} more to complete the quatrain.`;
+  announce(statusMessage());
 
   undoBtn.disabled = !anchor && n === 0;
   resetBtn.disabled = !anchor && n === 0;
@@ -383,6 +490,7 @@ function applyRegionsState({ on, ariaPressed }) {
   document.body.classList.toggle('show-regions', on);
 }
 
+gridEl.addEventListener('keydown', onGridKeyDown);
 undoBtn.addEventListener('click', () => { selection.undo(); render(); });
 resetBtn.addEventListener('click', () => { selection.reset(); render(); });
 regionsToggle.addEventListener('click', () =>

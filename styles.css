@@ -267,6 +267,12 @@ body {
   padding: 2px;
   box-shadow: inset 0 0 0 1px var(--selvedge-seam);
 }
+/* Semantic row groups (PER-48). buildGrid wraps each line of the cloth in a
+   role="row" div so #grid is a real ARIA grid; display: contents keeps all 841
+   cells as direct children of the CSS grid above, so the 29-column pitch, the
+   1px gutters, the selvedge and every cell's slice of the shared sheen are
+   exactly as they were before the wrappers existed. */
+.grid-row { display: contents; }
 .cell {
   display: flex; align-items: center; justify-content: center;
   /* Fill and texture are two separate layers (PER-27), which is what lets every
@@ -314,6 +320,29 @@ body {
 .cell.in-line { --cell-fill: var(--gold-wash); font-weight: 600; }
 .cell.junction { outline: 3px solid var(--vermillion); outline-offset: -3px; z-index: 1; }
 .cell.preview { --cell-fill: var(--gold-glow); box-shadow: inset 0 0 0 2px var(--gold); }
+/* The keyboard position: the roving tab stop, when the reader is arrowing
+   through the cloth. A gold-ink ring *outside* the cell box, which is what
+   tells it apart at a glance from the junction's vermillion ring (drawn inside,
+   outline-offset: -3px) and from the preview's inset gold shadow. Declared
+   after those states on purpose: at equal specificity it wins the outline on a
+   focused junction, and the junction is still marked there by the thread
+   overlay's own vermillion knot — whereas an invisible focus ring would leave a
+   keyboard reader with no idea where they are. */
+.cell:focus-visible {
+  outline: 3px solid var(--gold-ink);
+  outline-offset: 2px;
+  z-index: 2;              /* above .cell.junction's z-index: 1, so nothing clips the ring */
+}
+
+/* Available to a screen reader, invisible on the page: the grid's English name,
+   its keyboard instructions, and the centre's description (PER-48). The clip
+   technique, not display: none or hidden, which would take them out of the
+   accessibility tree and off the aria-labelledby/describedby they are there for. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
 
 /* Gold-thread overlay: an SVG sibling of #grid inside .grid-frame, so it is
    anchored to the frame and stays aligned while .grid-viewport pans. */

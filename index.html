@@ -50,8 +50,22 @@
     </section>
 
     <section class="grid-viewport" aria-label="poem grid">
+      <!-- The grid's English helper copy (PER-48). It lives outside #grid on
+           purpose: #grid is lang="zh-Hant" (PER-29), so an aria-label or
+           aria-description written on the grid itself would be voiced by a
+           Chinese synthesiser. Referenced by id instead, each of these is read
+           in the English it inherits from <html lang="en">, while the cells
+           stay Chinese. -->
+      <p id="grid-name" class="visually-hidden">Star Gauge poem grid, 29 rows by 29 columns of characters.</p>
+      <p id="grid-instructions" class="visually-hidden">Use the arrow keys to move one character at a time.
+      Press Enter or Space to choose the character your thread starts from, then press Tab to reach the
+      compass and extend the line seven characters at a time.</p>
+      <!-- Description for the one cell that is navigable but never selectable. -->
+      <p id="center-note" class="visually-hidden">The heart character at the centre belongs to every reading
+      and to none. It can be moved through but never chosen.</p>
       <div class="grid-frame">
-        <div id="grid" class="grid" lang="zh-Hant"></div>
+        <div id="grid" class="grid" lang="zh-Hant" role="grid"
+             aria-labelledby="grid-name" aria-describedby="grid-instructions"></div>
         <!-- Gold-thread overlay: anchored to the frame, so it pans with the grid.
              Purely decorative — the poem itself is read from the cells. -->
         <svg id="thread" class="thread" aria-hidden="true" focusable="false"></svg>
