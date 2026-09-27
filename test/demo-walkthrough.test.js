@@ -146,7 +146,12 @@ test('the walkthrough presses the real controls rather than adding a render path
   // The one animating call site still belongs to the compass handler: the
   // walkthrough inherits the strand draw and the quatrain reveal instead of
   // asking for its own.
-  assert.equal((appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? []).length, 1);
+  // PER-43's restore also names animateNewest — but names it false, because a
+  // path that came back from the address was not drawn just now. Only the call
+  // site that actually animates is counted.
+  const animating = (appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [])
+    .filter((call) => !/animateNewest: false/.test(call));
+  assert.equal(animating.length, 1);
   assert.doesNotMatch(functionBody(appJs, 'startDemo'), /animateNewest|revealCompletion/);
 });
 
@@ -175,7 +180,12 @@ test('first-visit startup is guarded, persisted and outside render', () => {
   assert.match(startup, /markDemoSeen\(\);\s*startDemo\(\{ automatic: true \}\)/s);
   assert.match(functionBody(appJs, 'hasSeenDemo'), /try \{[\s\S]*localStorage\.getItem/);
   assert.match(functionBody(appJs, 'markDemoSeen'), /try \{[\s\S]*localStorage\.setItem/);
-  assert.match(appJs, /buildCompass\(\);\s*\r?\nrender\(\);\s*\r?\nmaybeStartDemo\(\);/);
+  // The bootstrap now restores the address first (PER-43) and offers the
+  // walkthrough after it; maybeStartDemo declines when a hash is present, so a
+  // shared link opens on its poem rather than on a demonstration.
+  assert.match(appJs, /buildCompass\(\);\s*\r?\nrenderRestoredPath\(\);/,
+    'the traced path in the address is restored first');
+  assert.match(appJs, /maybeStartDemo\(\);/, 'and the walkthrough is offered at startup');
   assert.doesNotMatch(functionBody(appJs, 'render'), /maybeStartDemo/);
   assert.doesNotMatch(appJs.slice(appJs.indexOf('new ResizeObserver')), /startDemo/);
 });

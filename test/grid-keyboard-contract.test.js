@@ -321,9 +321,15 @@ test('src/app.js: the tab stop has exactly one writer, and it is selection-indep
   for (const name of ['render', 'drawThread', 'positionCompass', 'previewLine']) {
     assert.doesNotMatch(functionBody(appJs, name), /tabIndex/, `${name} does not move the tab stop`);
   }
+  // Both handlers may now also cancel a pending walkthrough (PER-46). What this
+  // test protects is unchanged: neither one touches the tab stop, so the
+  // reader's place in the grid survives an undo and a reset.
   for (const handler of ['undoBtn', 'resetBtn']) {
-    assert.match(appJs, new RegExp(`${handler}\\.addEventListener\\('click', \\(\\) => \\{ selection\\.(?:undo|reset)\\(\\); render\\(\\); \\}\\)`),
-      `${handler} still only re-renders, so the tab stop survives it`);
+    const from = appJs.indexOf(`${handler}.addEventListener('click'`);
+    const listener = appJs.slice(from, from + 260);
+    assert.match(listener, /selection\.(?:undo|reset)\(\);/, `${handler} still goes through the selection`);
+    assert.match(listener, /render\(\);/, `${handler} still re-renders`);
+    assert.doesNotMatch(listener, /tabIndex/, `${handler} still does not move the tab stop`);
   }
 });
 
@@ -360,7 +366,7 @@ test('src/app.js: the click handler is attached to every cell, centre included',
     'centre aria-describedby preserved');
   assert.doesNotMatch(centerBlock[1], /addEventListener/,
     'the centre-only block itself no longer contains the click wiring');
-  assert.match(body, /\r?\n\s*el\.addEventListener\('click', \(\) => onCellClick\(r, c\)\);\s*\r?\n\s*rowEl\.appendChild\(el\);/,
+  assert.match(body, /\r?\n\s*el\.addEventListener\('click', \(event\) => onCellClick\(r, c, event\)\);\s*\r?\n\s*rowEl\.appendChild\(el\);/,
     'the click listener is the last thing attached to every cell, right before it joins its row');
   assert.equal((body.match(/addEventListener\('click'/g) ?? []).length, 1,
     'exactly one click-wiring call site inside buildGrid, applied to every cell');
@@ -368,7 +374,9 @@ test('src/app.js: the click handler is attached to every cell, centre included',
 
 test('src/app.js: click and Enter/Space run the same start-selection logic', () => {
   const body = functionBody(appJs, 'onCellClick');
-  assert.match(appJs, /el\.addEventListener\('click', \(\) => onCellClick\(r, c\)\)/, 'click calls it');
+  // The event is threaded through so a real click can take over a running
+  // walkthrough (PER-46); the demo's own synthetic clicks are untrusted.
+  assert.match(appJs, /el\.addEventListener\('click', \(event\) => onCellClick\(r, c, event\)\)/, 'click calls it');
   assert.match(functionBody(appJs, 'onGridKeyDown'),
     /if \(action\.type === 'activate'\) onCellClick\(action\.cell\.row, action\.cell\.col\)/,
     'Enter/Space call the very same function — no second copy of the rule');

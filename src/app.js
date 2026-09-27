@@ -682,6 +682,11 @@ maybeStartDemo();
 // An unreadable one lands quietly on the empty state, with no dialog and no
 // throw: the reader simply gets a blank cloth to start from.
 window.addEventListener('hashchange', () => {
+  // A new address supersedes whatever was on the cloth — including a
+  // walkthrough still pressing its own buttons. Its remaining steps would
+  // otherwise land on top of the trace the link just named, extending someone
+  // else's poem by however many moves were left to play.
+  cancelDemo();
   selection = decodePath(location.hash, GRID);
   renderRestoredPath();
 });

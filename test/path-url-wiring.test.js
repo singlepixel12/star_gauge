@@ -76,8 +76,14 @@ test('every render ends by putting the current path in the address', () => {
   // Undo, reset and picking a start all go through a bare render(), so none of
   // them needs to remember to write the fragment itself.
   assert.match(functionBody(appJs, 'onCellClick'), /render\(\);/);
-  assert.match(appJs, /selection\.undo\(\); render\(\);/);
-  assert.match(appJs, /selection\.reset\(\); render\(\);/);
+  // Undo and Reset now also cancel a pending walkthrough (PER-46), so they are
+  // no longer one-liners — but they still finish with the same bare render(),
+  // which is the only thing this test cares about.
+  for (const name of ['undo', 'reset']) {
+    const from = appJs.indexOf(`selection.${name}();`);
+    assert.ok(from > -1, `${name} is called from a handler`);
+    assert.match(appJs.slice(from, from + 120), /render\(\);/, `${name} is followed by a bare render()`);
+  }
   assert.equal(
     (appJs.match(/syncLocationHash\(\)/g) ?? []).length,
     2,
@@ -113,6 +119,17 @@ test('a resize redraws without touching the address', () => {
 
 test('app.js reads the address only through the codec and these two places', () => {
   const reads = appJs.match(/location\.hash/g) ?? [];
-  assert.equal(reads.length, 3, 'seeding, the hashchange replay, and the unchanged-path check');
-  assert.doesNotMatch(appJs, /localStorage|sessionStorage/, 'the URL is the only memory: nothing is stashed on the device');
+  assert.equal(reads.length, 4,
+    'seeding, the hashchange replay, the unchanged-path check, and the walkthrough declining on a shared link');
+  // Narrowed for PER-46. The claim was, and remains, that the URL is the only
+  // memory *of the poem*: no trace, path or selection is ever written to device
+  // storage. PER-46 stores one flag — whether this reader has already been shown
+  // the walkthrough — which remembers a reader, not a cloth.
+  const stored = appJs.match(/(?:local|session)Storage\.\w+\(([^)]*)\)/g) ?? [];
+  for (const call of stored) {
+    assert.match(call, /DEMO_STORAGE_KEY/,
+      'the only thing stashed on the device is the demonstration-seen flag');
+  }
+  assert.doesNotMatch(appJs, /(?:local|session)Storage[^;]*(?:encodePath|selection\.path|location\.hash)/,
+    'no traced path is ever written to device storage');
 });
