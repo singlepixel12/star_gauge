@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">璇璣圖</title>
+  <desc id="desc">心 character on a silk-coloured ground</desc>
+  <rect width="64" height="64" rx="10" fill="#e8c989" />
+  <rect x="4" y="4" width="56" height="56" rx="7" fill="none" stroke="#a8792f" stroke-width="2" />
+  <text x="32" y="45" text-anchor="middle" font-size="38" font-family="Noto Serif TC, PMingLiU, MingLiU, Microsoft JhengHei, SimSun, serif" fill="#8f2f2f">心</text>
+</svg>
