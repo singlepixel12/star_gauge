@@ -102,11 +102,43 @@ test('src/app.js: buildGrid tags each generated cell lang="zh-Hant"', () => {
     'the lang assignment sits inside the full 29x29 loop');
 });
 
-test('src/app.js: generated cells stay plain, non-focusable divs (Roadmap 1a is out of scope)', () => {
+// PER-48 made the grid keyboard-reachable (Roadmap 1a), which this file used to
+// assert was out of scope. What PER-29 actually guards is unchanged and is
+// asserted below instead: a cell is still a plain <div> carrying the glyph as
+// its own zh-Hant text, and the keyboard affordances added around it must not
+// hang English words off a Chinese element.
+test('src/app.js: generated cells stay plain divs, and gain no English accessible name', () => {
   const body = functionBody(appJs, 'buildGrid');
   assert.match(body, /document\.createElement\('div'\)/, 'a cell is still a <div>');
-  assert.doesNotMatch(body, /tabindex/i, 'no tabindex is introduced on cells by this change');
-  assert.doesNotMatch(body, /setAttribute\('role'/, 'no interactive role is introduced on cells by this change');
+  assert.match(body, /el\.setAttribute\('role', 'gridcell'\)/, 'a cell is a gridcell, not a bare div');
+  // The whole PER-29 point: the accessible name is the character itself, in its
+  // own voice. An English name written here would be read out by a Chinese
+  // synthesiser — the exact bug PER-29 fixed at document level.
+  assert.doesNotMatch(body, /setAttribute\('aria-label'|\.ariaLabel\s*=/,
+    'no English name is written onto a zh-Hant cell');
+  assert.match(body, /el\.textContent = GRID\[r\]\[c\]/, 'the glyph is the name, read as zh-Hant');
+  // The centre's English explanation is referenced, never inlined: the text
+  // itself lives outside #grid, where it inherits <html lang="en">.
+  assert.match(body, /el\.setAttribute\('aria-describedby', 'center-note'\)/,
+    'the centre points at English copy held outside the Chinese subtree');
+  assert.doesNotMatch(body, /setAttribute\('aria-description'|\.ariaDescription\s*=/,
+    'no inline English description on a Chinese element either');
+});
+
+test('index.html: the grid’s English name and instructions sit outside the zh-Hant subtree', () => {
+  const grid = element(html, 'grid');
+  assert.match(grid, /lang="zh-Hant"/, 'the grid itself is still the Chinese subtree');
+  assert.doesNotMatch(grid, /aria-label=/, 'so it carries no English label of its own');
+  assert.match(grid, /aria-labelledby="grid-name"/, 'it is named by reference instead');
+  assert.match(grid, /aria-describedby="grid-instructions"/, 'and described by reference');
+  for (const id of ['grid-name', 'grid-instructions', 'center-note']) {
+    const helper = element(html, id);
+    assert.doesNotMatch(helper, /lang="zh-Hant"/, `#${id} is English copy and stays untagged`);
+    // Outside #grid, so it inherits lang="en" rather than the grid's zh-Hant.
+    assert.ok(!element(html, 'grid').includes(helper), `#${id} is not inside the Chinese subtree`);
+    assert.ok(html.indexOf(helper) < html.indexOf('<div class="grid-frame">'),
+      `#${id} is declared before the grid frame it describes`);
+  }
 });
 
 test('src/grid-data.js: the transcribed grid is untouched by this change', () => {
