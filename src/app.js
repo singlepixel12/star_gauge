@@ -10,6 +10,7 @@ import { silkVars } from './silk.js';
 import { isQuatrainMilestone } from './milestone.js';
 import { CENTER_NOTE, INITIAL_CELL, createRovingFocus } from './grid-navigation.js';
 import { decodePath, encodePath } from './path-codec.js';
+import { demoSteps, demoStepDelay } from './demo.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -40,6 +41,7 @@ const progressEl = document.getElementById('progress');
 const undoBtn = document.getElementById('undo');
 const resetBtn = document.getElementById('reset');
 const regionsToggle = document.getElementById('regions-toggle');
+const demoBtn = document.getElementById('demo');
 const outputEl = document.getElementById('output');
 const poemZhEl = document.getElementById('poem-zh');
 // The same thread read back from its endpoint — derived text, not a second
@@ -102,7 +104,7 @@ function buildGrid() {
       // isCenter, announcing CENTER_NOTE and returning before touching
       // selection. A centre-only skip here would leave a click on 心 doing
       // nothing at all.
-      el.addEventListener('click', () => onCellClick(r, c));
+      el.addEventListener('click', (event) => onCellClick(r, c, event));
       rowEl.appendChild(el);
       cellEls[r][c] = el;
     }
@@ -168,7 +170,8 @@ function buildCompass() {
     btn.type = 'button';
     btn.textContent = dir.arrow;
     btn.setAttribute('aria-label', `extend line ${DIR_WORDS[id]}`);
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (event) => {
+      if (event.isTrusted && demoRunning()) cancelDemo({ clearSelection: true });
       clearPreview();
       // Only a line that was actually committed is drawn on; a rejected
       // direction re-renders unchanged and must not re-animate anything.
@@ -191,7 +194,10 @@ function buildCompass() {
 
 // The one start-selection path. A click on a cell and Enter/Space on the
 // focused cell both land here, so pointer and keyboard cannot drift apart.
-function onCellClick(row, col) {
+function onCellClick(row, col, event) {
+  // A real click takes the walkthrough over. The demo presses these same cells
+  // itself, and those events are untrusted, so it cannot cancel itself.
+  if (event?.isTrusted && demoRunning()) cancelDemo({ clearSelection: true });
   // The tab stop follows the cell the reader just chose, however they chose it:
   // after a click, Tab still leaves from where they were looking.
   setTabStop({ row, col });
@@ -459,6 +465,7 @@ function render({ animateNewest = false, revealCompletion = false } = {}) {
 
   undoBtn.disabled = !anchor && n === 0;
   resetBtn.disabled = !anchor && n === 0;
+  syncDemoButton();
 
   // Live output: visible from the first committed line onward; never vanishes.
   // The trace is read once and every reading below is derived from that one
@@ -509,6 +516,115 @@ function renderRestoredPath() {
   render({ animateNewest: false, revealCompletion: selection.canExtract() });
 }
 
+// --- "Show me one" walkthrough ------------------------------------------
+
+// The walkthrough presses the page's own controls — a cell, then four compass
+// buttons — rather than driving the selection or the renderer itself. That is
+// the whole of the trick: because there is no second code path, the strand
+// draw and the quatrain reveal fire in the sequence they already have, and a
+// visitor watches exactly the moves they would have made.
+//
+// It is an illustrative path, not a documented reading (see src/demo.js), and
+// the invitation in the hero says so.
+const DEMO_LABEL = 'Show me one';
+const DEMO_STOP_LABEL = 'Skip demonstration';
+const DEMO_STORAGE_KEY = 'star-gauge:demonstration-seen';
+
+let demoTimer = null;
+let demoActive = false;
+let demoGeneration = 0;
+let demoStartupAttempted = false;
+
+const demoRunning = () => demoActive;
+
+function syncDemoButton() {
+  demoBtn.textContent = demoActive ? DEMO_STOP_LABEL : DEMO_LABEL;
+  const hasSelection = selection.lineCount() > 0 || Boolean(selection.currentAnchor());
+  demoBtn.disabled = !demoActive && hasSelection;
+}
+
+function playDemoStep(step) {
+  if (step.kind === 'start') cellEls[step.row][step.col].click();
+  else compassBtns.get(step.id).click();
+}
+
+function endDemo() {
+  if (demoTimer !== null) clearTimeout(demoTimer);
+  demoTimer = null;
+  demoActive = false;
+  demoGeneration++;
+  syncDemoButton();
+}
+
+function cancelDemo({ clearSelection = false } = {}) {
+  endDemo();
+  if (clearSelection) selection.reset();
+}
+
+function stopDemo() {
+  cancelDemo({ clearSelection: true });
+  render();
+}
+
+function startDemo({ automatic = false } = {}) {
+  if (demoActive) return;
+  if (selection.lineCount() > 0 || selection.currentAnchor()) return;
+  if (!automatic) syncDemoButton();
+  demoGeneration++;
+  const generation = demoGeneration;
+  demoActive = true;
+  syncDemoButton();
+  const steps = demoSteps();
+  const play = (index) => {
+    if (!demoActive || generation !== demoGeneration) return;
+    demoTimer = null;
+    playDemoStep(steps[index]);
+    const next = index + 1;
+    if (next === steps.length) return endDemo();
+    // Reduced motion: the end state, not the journey. Nothing is being drawn
+    // to wait for, so the rest of the steps run here and the finished quatrain
+    // is simply there.
+    if (REDUCED_MOTION) return play(next);
+    demoTimer = setTimeout(() => {
+      if (demoActive && generation === demoGeneration) play(next);
+    }, demoStepDelay(next));
+  };
+  play(0);
+}
+
+function onVisitorAction(event) {
+  if (!demoRunning() || !event.isTrusted) return;
+  if (demoBtn.contains(event.target) || undoBtn.contains(event.target) || resetBtn.contains(event.target)) return;
+  const clearSelection = !compassEl.contains(event.target);
+  cancelDemo({ clearSelection });
+  render();
+}
+
+function hasSeenDemo() {
+  try {
+    return window.localStorage.getItem(DEMO_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markDemoSeen() {
+  try {
+    window.localStorage.setItem(DEMO_STORAGE_KEY, '1');
+  } catch {
+    // Private browsing and disabled storage must not break the app.
+  }
+}
+
+function maybeStartDemo() {
+  if (demoStartupAttempted) return;
+  demoStartupAttempted = true;
+  if (hasSeenDemo()) return;
+  if (window.location.hash || selection.lineCount() > 0 || selection.currentAnchor()) return;
+  markDemoSeen();
+  startDemo({ automatic: true });
+}
+
 async function onCopyPrompt() {
   try {
     await navigator.clipboard.writeText(promptTextEl.value);
@@ -530,11 +646,25 @@ function applyRegionsState({ on, ariaPressed }) {
 }
 
 gridEl.addEventListener('keydown', onGridKeyDown);
-undoBtn.addEventListener('click', () => { selection.undo(); render(); });
-resetBtn.addEventListener('click', () => { selection.reset(); render(); });
+undoBtn.addEventListener('click', () => {
+  if (demoRunning()) cancelDemo({ clearSelection: true });
+  selection.undo();
+  render();
+});
+resetBtn.addEventListener('click', () => {
+  cancelDemo({ clearSelection: true });
+  selection.reset();
+  render();
+});
 regionsToggle.addEventListener('click', () =>
   applyRegionsState(nextRegionsState(regionsToggle.getAttribute('aria-pressed'))));
 copyPromptBtn.addEventListener('click', onCopyPrompt);
+demoBtn.addEventListener('click', () => { if (demoRunning()) stopDemo(); else startDemo(); });
+// Capture trusted clicks so mouse, keyboard, screen-reader and voice-control
+// activations all stop the demo before the page's own handler runs. Synthetic
+// clicks from playDemoStep are untrusted and therefore continue the demo.
+document.addEventListener('click', onVisitorAction, true);
+
 translateBtn.disabled = !LLM_ENABLED;
 // The "translation is off" helper only applies while the live call is disabled.
 englishHelpEl.hidden = LLM_ENABLED;
@@ -542,12 +672,21 @@ englishHelpEl.hidden = LLM_ENABLED;
 buildGrid();
 buildCompass();
 renderRestoredPath();
+// Offered only to a first visitor arriving on an untraced cloth: maybeStartDemo
+// already declines when the address carries a path, so a shared link opens on
+// the poem it names and never on a demonstration.
+maybeStartDemo();
 
 // A fragment arriving after load — a pasted link, Back onto an earlier trace,
 // a hand-edited address — replaces what is on the cloth in a single render.
 // An unreadable one lands quietly on the empty state, with no dialog and no
 // throw: the reader simply gets a blank cloth to start from.
 window.addEventListener('hashchange', () => {
+  // A new address supersedes whatever was on the cloth — including a
+  // walkthrough still pressing its own buttons. Its remaining steps would
+  // otherwise land on top of the trace the link just named, extending someone
+  // else's poem by however many moves were left to play.
+  cancelDemo();
   selection = decodePath(location.hash, GRID);
   renderRestoredPath();
 });

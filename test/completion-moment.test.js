@@ -142,8 +142,16 @@ test('non-completion rerenders and resize cancel pending completion work', () =>
   assert.match(observer, /clearPendingReveal\(\);/, 'resize drops a listener/timer for the replaced strand');
   assert.match(observer, /drawThread\(\);/);
   assert.match(observer, /positionCompass\(anchor, \{ scroll: false \}\)/);
-  assert.match(appJs, /undoBtn\.addEventListener\('click', \(\) => \{ selection\.undo\(\); render\(\); \}\)/);
-  assert.match(appJs, /resetBtn\.addEventListener\('click', \(\) => \{ selection\.reset\(\); render\(\); \}\)/);
+  assert.match(
+    appJs,
+    /undoBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.undo\(\);\s*render\(\);\s*\}\);/,
+    'undo cancels demo work and re-renders the thread in its final state',
+  );
+  assert.match(
+    appJs,
+    /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
+    'reset cancels demo work and re-renders without animation',
+  );
 });
 
 test('live output remains available from line one', () => {
