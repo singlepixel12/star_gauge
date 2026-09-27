@@ -393,8 +393,15 @@ test('src/app.js: #progress is still the one announcement surface', () => {
   assert.doesNotMatch(appJs, /setAttribute\('aria-live'/, 'nor one added from script');
 });
 
-test('src/app.js: PER-48 adds no URL, hash or history behaviour', () => {
-  for (const source of ['app.js', 'grid-navigation.js', 'selection.js', 'geometry.js']) {
+test('the pure modules carry no URL, hash or history behaviour', () => {
+  // PER-48 originally swept app.js too, to prove the keyboard work introduced
+  // no URL behaviour. PER-43 has since landed and app.js is now, correctly, one
+  // of the two places that *does* read and write the fragment (with
+  // path-codec.js). So app.js is out of this sweep — but the rest of it is
+  // worth more than it was: it now asserts the layering PER-43 chose, that URL
+  // handling never leaks down into the pure geometry, selection or navigation
+  // modules. Those three answer questions about the cloth, not about the page.
+  for (const source of ['grid-navigation.js', 'selection.js', 'geometry.js']) {
     const text = readFileSync(new URL(`../src/${source}`, import.meta.url), 'utf8');
     assert.doesNotMatch(text, /location\b|history\b|pushState|replaceState|window\.hash|#\{/,
       `${source} neither reads nor writes the URL`);

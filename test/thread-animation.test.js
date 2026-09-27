@@ -66,9 +66,14 @@ test('only a successful addLine asks for animation', () => {
     'animation is requested only when the line was actually committed',
   );
 
-  // Exactly one call site in the whole file may request animation.
-  const requests = appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [];
+  // Exactly one call site in the whole file may request animation. PER-43's
+  // restored path names the same intent, but only to switch it *off*, so what
+  // is counted is the sites that turn animation on rather than the sites that
+  // mention it — a second site actually asking for it still fails this.
+  const mentions = appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [];
+  const requests = mentions.filter((call) => !/animateNewest:\s*false\b/.test(call));
   assert.equal(requests.length, 1, 'no other call site turns animation on');
+  assert.equal(mentions.length - requests.length, 1, 'and the only other mention switches it off');
 });
 
 test('undo, reset, start and the initial render do not animate', () => {
@@ -83,10 +88,18 @@ test('undo, reset, start and the initial render do not animate', () => {
     'reset re-renders without animation',
   );
   assert.match(functionBody(appJs, 'onCellClick'), /render\(\);/, 'picking a start does not animate');
+  // The first paint is the restored one (PER-43): it draws whatever the address
+  // carried — often nothing at all — and refuses the strand draw outright, so a
+  // shared link never replays itself as though it were being traced live.
   assert.match(
     appJs,
-    /buildCompass\(\);\s*\r?\nrender\(\);/,
-    'the initial render draws the (empty) thread without animation',
+    /buildCompass\(\);\s*\r?\nrenderRestoredPath\(\);/,
+    'the initial render is the restored-path one',
+  );
+  assert.match(
+    functionBody(appJs, 'renderRestoredPath'),
+    /render\(\{ animateNewest: false, revealCompletion: selection\.canExtract\(\) \}\)/,
+    'a restored path is shown settled, with the completion intent named outright',
   );
 });
 
