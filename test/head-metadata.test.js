@@ -19,7 +19,11 @@ function count(source, pattern) {
 
 test('index.html: preserves the established document identity', () => {
   assert.equal(count(html, /<title>[\s\S]*?<\/title>/gi), 1, 'one title element');
-  assert.match(html, /<html\s+lang="zh-Hant">/i, 'traditional-Chinese language declaration is unchanged');
+  // PER-29 moved the document default to English and marked the CJK subtrees
+  // (#grid, #poem-zh, the title glyph, the footer) individually. This ticket
+  // declared the lang attribute out of scope and does not touch it; the guard
+  // stays, it just guards the value PER-29 settled on rather than the old one.
+  assert.match(html, /<html\s+lang="en">/i, 'the document language declaration is left to PER-29, not changed here');
   assert.match(html, /<title>璇璣圖 · Star Gauge<\/title>/, 'the established title is unchanged');
 });
 
