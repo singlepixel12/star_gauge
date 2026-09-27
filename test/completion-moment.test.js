@@ -141,11 +141,57 @@ test('non-completion rerenders and resize cancel pending completion work', () =>
 test('live output remains available from line one', () => {
   assert.match(renderBody, /outputEl\.hidden = n === 0;/);
   const outputAt = renderBody.indexOf('outputEl.hidden = n === 0;');
-  const poemAt = renderBody.indexOf("poemZhEl.textContent = selection.extractedLines().join('\\n');");
+  // PER-45 reads the trace into a local first and writes both readings from it;
+  // the forward <pre> is still what the completion moment scrolls to.
+  const poemAt = renderBody.indexOf("poemZhEl.textContent = extractedLines.join('\\n');");
+  const reverseAt = renderBody.indexOf("poemReverseEl.textContent = reverseReading(extractedLines).join('\\n');");
   const completionBranchAt = renderBody.indexOf('if (selection.canExtract())');
   assert.ok(outputAt > -1 && poemAt > outputAt, 'render keeps the live poem after revealing output');
+  assert.ok(reverseAt > poemAt, 'the reverse reading is written alongside it, forward first');
+  assert.ok(reverseAt < completionBranchAt, 'both readings are populated before completion-only prompt state');
   assert.ok(poemAt < completionBranchAt, 'poem text is populated before completion-only prompt state');
   assert.doesNotMatch(renderBody.slice(0, poemAt), /if \(selection\.canExtract\(\)\)/);
+});
+
+test('the reverse reading rides inside the one completion card and adds no second moment', () => {
+  // The forward <pre> still names the completion target, and the reverse <pre>
+  // lives in the same .poem-chinese card — so PER-22's single scroll lands on
+  // content that is already whole in both directions.
+  assert.match(appJs, /const poemCardEl = poemZhEl\.closest\('\.poem-chinese'\);/);
+  const card = html.match(/<div class="card poem-chinese">[\s\S]*?<\/div>\s*<div class="card prompt-block">/);
+  assert.ok(card, 'the poem card is still followed by the prompt card');
+  assert.match(card[0], /id="poem-zh"/, 'the forward reading is in the completion card');
+  assert.match(card[0], /id="poem-zh-reverse"/, 'and so is the reverse reading');
+
+  // Nothing new moves, times out, covers or celebrates.
+  assert.equal((appJs.match(/\.scrollIntoView\(/g) ?? []).length, 2, 'only the compass and the poem scroll');
+  assert.equal((appJs.match(/classList\.add\('is-complete'\)/g) ?? []).length, 1);
+  assert.doesNotMatch(appJs, /poemReverseEl\.(?:scrollIntoView|classList)/);
+  // The reverse <pre> is only ever written to, synchronously, in render(): it
+  // is never handed to a timer or a listener of its own. Matched per statement,
+  // so the timers PER-22 already owns further down the file cannot trip this.
+  for (const statement of appJs.match(/^.*\bpoemReverseEl\b.*$/gm) ?? []) {
+    assert.doesNotMatch(statement, /setTimeout|setInterval|addEventListener|requestAnimationFrame/, statement);
+  }
+  for (const selector of ['.poem-readings', '.reading', '.reading-label']) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rules = cssClean.match(new RegExp(`${escaped}[^{}]*\\{[^{}]*\\}`, 'g')) ?? [];
+    assert.ok(rules.length > 0, `expected rules for ${selector}`);
+    for (const body of rules) {
+      assert.doesNotMatch(body, /animation|position\s*:\s*(?:fixed|absolute)/, `${selector} stays static`);
+    }
+  }
+  assert.doesNotMatch(cssClean, /\.poem-readings::(?:before|after)|\.reading::(?:before|after)/);
+});
+
+test('.poem-chinese.is-complete still covers neither reading', () => {
+  // Frame only: border-color and box-shadow cost no layout, so nothing shifts
+  // or is obscured when the card warms — with two readings in it as with one.
+  const declared = cssRule('.poem-chinese.is-complete')
+    .split(';')
+    .map((d) => d.split(':')[0].trim())
+    .filter(Boolean);
+  assert.deepEqual(declared, ['border-color', 'box-shadow']);
 });
 
 test('reduced motion removes card motion and the completion has no covering element', () => {

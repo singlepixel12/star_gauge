@@ -513,6 +513,36 @@ body {
   white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto;
 }
 
+/* The cloth is reversible, so the card shows the one thread read both ways at
+   once (PER-45). Two readings side by side, inside the existing poem card —
+   no overlay, no reveal, no second thread and nothing to press: the reverse is
+   derived text that is simply always there.
+
+   Side by side is the layout wherever the line will fit whole; below 600px it
+   becomes one column over two rows. See the arithmetic in the max-width: 600px
+   block — "side by side" is how the two readings are *paired*, and a wrapped
+   half-line would break the pairing it exists to show. */
+.poem-readings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.reading { min-width: 0; }
+/* The divider is a single hairline of weave, deliberately quieter than the
+   card's own gold frame: these are two readings of one poem, not two cards. */
+.reading + .reading {
+  border-left: 1px solid rgba(214, 193, 148, .7);
+  padding-left: 1rem;
+}
+/* Labels name each reading without competing with it — the poem is the voice. */
+.reading-label {
+  margin: 0 0 .35rem;
+  font: 400 .75rem/1.2 var(--ui);
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--faded);
+}
+.reading-note { margin: -.25rem 0 .9rem; max-width: 52ch; }
+
 /* Utility cards deliberately read quieter than the poem. */
 .prompt-block, .english-block {
   background: rgba(240, 232, 214, .5);
@@ -604,6 +634,31 @@ footer.credits a { color: var(--gold-ink); }
   .grid-frame { padding: 44px; }
   .output { grid-template-columns: 1fr; }
   .poem-chinese { padding: 1.1rem 1rem; }
+  /* One column, by measurement rather than by taste. A phone cannot hold two
+     seven-character lines abreast, and a wrapped line is worse than a stacked
+     one: it is the *line* that has to survive, because the whole point of the
+     pairing is reading a line forward against the same line backward.
+
+     At 375px: 375 - 24 (body padding) - 32 (card padding) - 4 (card border)
+     = 315px of content. A .poem glyph here is clamp()'s 1.7rem floor = 27.2px,
+     plus .25em letter-spacing = 34px of advance per character, so a full line
+     is 7 x 34 = 238px (~231px of ink, the last letter-space hanging).
+       one column:  231px in 315px — the line lands whole, with room to spare.
+       two columns: 16px gap + 16px divider padding + 1px rule leaves 141px a
+                    side, i.e. 4.1 characters — every line of the quatrain would
+                    wrap into two ragged rows, and forward would no longer sit
+                    level with reverse. Shrinking the glyphs to compensate is
+                    the other way to lose, so neither is taken.
+     Stacked, both readings keep full width, full size and their line structure,
+     which is what makes the reversibility legible at all. This also matches the
+     "single-column layout on small screens" constraint in CLAUDE.md and the
+     rest of this query, where .output and .opening collapse the same way. */
+  .poem-readings { grid-template-columns: 1fr; }
+  .reading + .reading {
+    border-left: 0; padding-left: 0;
+    border-top: 1px solid rgba(214, 193, 148, .7);
+    padding-top: .9rem;
+  }
   .poem { letter-spacing: .25em; }
 }
 /* Narrow phones: tighten the row rather than let it break into a third one. */
