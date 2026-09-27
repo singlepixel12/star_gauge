@@ -157,16 +157,32 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Every rgba() stop of the sheen token, with its alpha.
-function sheenStops() {
-  const value = root.get('--silk-sheen');
-  assert.ok(value, ':root declares --silk-sheen');
+// Every rgba() stop of a sheen gradient token, with its alpha and position.
+function stopsOf(value, label) {
+  assert.ok(value, `${label} is declared`);
   const stops = [...value.matchAll(/rgba?\([^)]*\)\s*([\d.]+)%/g)].map((m) => ({
     color: parseColor(m[0].slice(0, m[0].lastIndexOf(')') + 1)),
     at: Number(m[1]),
   }));
-  assert.ok(stops.length >= 4, 'the sheen has enough stops to read as light across cloth');
+  assert.ok(stops.length >= 4, `${label} has enough stops to read as light across cloth`);
   return stops;
+}
+
+// The default, full-strength sheen: what the plain grid wears.
+function sheenStops() {
+  return stopsOf(root.get('--silk-sheen'), ':root --silk-sheen');
+}
+
+// The damped sheen: what Colour-regions mode swaps in (PER-37).
+function dampedStops() {
+  return stopsOf(root.get('--silk-sheen-regions'), ':root --silk-sheen-regions');
+}
+
+// Straight-line distance in sRGB. Crude next to a real colour-difference
+// metric, but it is the right shape for the two questions here — are two bands
+// still as far apart as they were, and does one band still read as one colour.
+function rgbDistance(a, b) {
+  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
 }
 
 // --- the positioning arithmetic -----------------------------------------
@@ -316,6 +332,162 @@ test('styles.css: the sheen cannot cost a glyph its legibility, on any fill it s
         `${name} at ${stop.at}%: the sheen shifts contrast by ${(100 * Math.abs(ratio - plain) / plain).toFixed(1)}% — it must stay subtle`,
       );
       assert.ok(stop.color.a <= 0.3, `sheen stop at ${stop.at}% keeps its alpha low`);
+    }
+  }
+});
+
+// --- damped in Colour-regions mode (PER-37) ------------------------------
+// The sheen is decoration; the six region tints are a signal. At full strength
+// the wash was lightening each tint and varying one band along its length, so
+// regions mode wears the same cloth at lower amplitude. The numbers below are
+// the ones the ticket argued from, run rather than asserted in prose.
+
+test('styles.css: Colour-regions mode swaps the shared token and does nothing else', () => {
+  const regions = rule('.show-regions');
+  assert.equal(regions.get('--silk-sheen'), 'var(--silk-sheen-regions)',
+    'regions mode re-points the one shared token');
+  assert.equal(regions.size, 1,
+    'and that is the whole move: one declaration on the body, no second surface to keep in step');
+
+  // The swap is a token, so nothing downstream changes shape: .cell still paints
+  // var(--silk-sheen) and every region tint and state still sets a fill only.
+  assert.equal(cell.get('background-image'), 'var(--silk-sheen)',
+    'the cell keeps the one indirection and never learns which mode it is in');
+  assert.equal(cell.get('background-color'), 'var(--cell-fill)', 'the fill is still its own layer');
+  for (const block of blocks(cssClean)) {
+    if (!block.prelude.split(',').some((s) => s.trim().startsWith('.show-regions'))) continue;
+    const decls = declarations(block.body);
+    assert.equal(decls.has('background'), false,
+      `${block.prelude} must not use the shorthand — it would drop the cloth out from under the cell`);
+    assert.equal(decls.has('background-image'), false,
+      `${block.prelude} must not paint its own image; damping is a token swap, not a second layer`);
+  }
+  assert.ok(root.get('--silk-sheen').includes('rgba(255, 253, 246, .30)'),
+    'the default token keeps its full-strength stops: regions off must not regress');
+});
+
+test('styles.css: the damped sheen is the same cloth at lower amplitude', () => {
+  const full = root.get('--silk-sheen');
+  const damped = root.get('--silk-sheen-regions');
+
+  // Same rake, or the bands would cross the grid at a different angle in the two
+  // modes and toggling regions would look like a different weave.
+  const angle = (v) => v.match(/^linear-gradient\((-?[\d.]+deg)/);
+  assert.ok(angle(damped), 'the damped token is a linear-gradient with an explicit angle');
+  assert.equal(angle(damped)[1], angle(full)[1], 'both modes are raked at the same angle');
+
+  const a = sheenStops();
+  const b = dampedStops();
+  assert.equal(b.length, a.length, 'same number of stops');
+  const ratios = [];
+  for (let i = 0; i < a.length; i++) {
+    assert.equal(b[i].at, a[i].at, `stop ${i} sits at the same point along the cloth`);
+    for (const ch of ['r', 'g', 'b']) {
+      assert.equal(b[i].color[ch], a[i].color[ch], `stop ${i} keeps its colour; only the alpha moves`);
+    }
+    assert.ok(b[i].color.a < a[i].color.a, `stop ${i} is damped`);
+    ratios.push(b[i].color.a / a[i].color.a);
+  }
+  // Damped in step: one stop pulled down further than the others would change
+  // the gradient's shape, not just its strength.
+  const spread = Math.max(...ratios) - Math.min(...ratios);
+  assert.ok(spread <= 0.1, `all stops scale together (ratios span ${spread.toFixed(3)})`);
+  assert.ok(Math.min(...ratios) >= 0.3 && Math.max(...ratios) <= 0.6,
+    'damped to roughly half strength: enough to matter, not enough to erase the cloth');
+
+  // Still a lit cloth, not a flat fill — the texture has to survive the damping.
+  assert.ok(Math.max(...b.map((s) => s.color.a)) >= 0.08, 'the brightest damped stop is still visible light');
+  const lit = b.filter((s) => luminance(s.color) > 0.6);
+  const shade = b.filter((s) => luminance(s.color) < 0.6);
+  assert.ok(lit.length >= 2 && shade.length >= 2, 'the damped cloth is still raked by light and shade');
+
+  // The structural contract of the default token, kept by its twin.
+  assert.doesNotMatch(damped, /repeating-/, 'nothing repeating: a repeat would put a period in the cloth');
+  assert.equal((damped.match(/gradient\(/g) || []).length, 1, 'exactly one gradient in the token');
+  assert.doesNotMatch(damped, /px/, 'no pixel-scale stop can alias at fractional device pixels');
+  for (let i = 1; i < b.length; i++) {
+    assert.ok(b[i].at - b[i - 1].at >= 15, `damped stop ${i} stays a band, not a stripe`);
+  }
+});
+
+test('styles.css: under the damped sheen the six bands keep their separation and their colour', () => {
+  const ink = parseColor(root.get('--ink'));
+  const fills = REGION_IDS.map((id) => ({
+    id: `r-${id}`,
+    color: parseColor(rule(`.show-regions .cell.r-${id}`).get('--cell-fill')),
+  }));
+  const full = sheenStops();
+  const damped = dampedStops();
+  const worst = (stops, fn) => Math.max(...stops.map(fn));
+
+  for (const { id, color } of fills) {
+    const flat = contrast(color, ink);
+    const shift = (stops) => worst(stops, (s) => Math.abs(contrast(over(s.color, color), ink) - flat) / flat);
+    const before = shift(full);
+    const after = shift(damped);
+    assert.ok(after < before / 2,
+      `${id}: the wash shifts contrast by ${(100 * after).toFixed(1)}%, less than half the ${(100 * before).toFixed(1)}% it did`);
+    assert.ok(after < 0.05, `${id}: the tint is within 5% of its own unlit value`);
+
+    // "One band reads as one colour along its length" — the part of the ticket
+    // that mattered. Measured as the spread between the lightest and darkest
+    // point of the cloth composited over the same tint.
+    const range = (stops) => worst(stops, (x) => worst(stops, (y) => rgbDistance(over(x.color, color), over(y.color, color))));
+    assert.ok(range(damped) < range(full) / 2,
+      `${id}: varies by ${range(damped).toFixed(1)} sRGB along the cloth, less than half of ${range(full).toFixed(1)}`);
+    assert.ok(range(damped) < 16, `${id}: and stays inside a narrow band end to end`);
+  }
+
+  // Adjacent bands: the delta between neighbouring tints is what makes six
+  // bands read as six. The ticket measured ~30% of it lost at the sheen's
+  // brightest; the damped wash has to give most of that back.
+  const brightest = (stops) => stops.reduce((x, y) => (x.color.a > y.color.a ? x : y));
+  for (let i = 0; i < fills.length - 1; i++) {
+    const [x, y] = [fills[i], fills[i + 1]];
+    const bare = rgbDistance(x.color, y.color);
+    assert.ok(bare > 0, `${x.id} and ${y.id} are different colours to begin with`);
+    const kept = (stops) => {
+      const s = brightest(stops).color;
+      return rgbDistance(over(s, x.color), over(s, y.color)) / bare;
+    };
+    assert.ok(kept(damped) > kept(full),
+      `${x.id}/${y.id}: damping returns separation the full sheen was taking`);
+    assert.ok(kept(damped) >= 0.85,
+      `${x.id}/${y.id}: keeps ${(100 * kept(damped)).toFixed(0)}% of its separation at the sheen's brightest`);
+  }
+});
+
+test('styles.css: the damped sheen keeps every fill it sits on AAA-legible too', () => {
+  // Same check as the full-strength sheen, over the fills regions mode can show:
+  // the six tints, the centre's plain silk, and a traced path crossing them.
+  const ink = parseColor(root.get('--ink'));
+  const fills = new Map([
+    ['--cell-bg', root.get('--cell-bg')],
+    ['--gold-wash', root.get('--gold-wash')],
+    ['--gold-glow', root.get('--gold-glow')],
+  ]);
+  for (const id of REGION_IDS) {
+    fills.set(`r-${id}`, rule(`.show-regions .cell.r-${id}`).get('--cell-fill'));
+  }
+  for (const [name, value] of fills) {
+    const base = parseColor(value);
+    for (const stop of dampedStops()) {
+      const ratio = contrast(over(stop.color, base), ink);
+      assert.ok(ratio >= 7, `${name} under damped stop at ${stop.at}%: contrast ${ratio.toFixed(1)} must stay >= 7:1 (AAA)`);
+      assert.ok(stop.color.a <= 0.3, `damped stop at ${stop.at}% keeps its alpha low`);
+    }
+  }
+  // The gold thread's two fills have to stay apart from every tint underneath
+  // them, or a traced cell would vanish into its region in regions mode.
+  const wash = parseColor(root.get('--gold-wash'));
+  const glow = parseColor(root.get('--gold-glow'));
+  for (const id of REGION_IDS) {
+    const tint = parseColor(rule(`.show-regions .cell.r-${id}`).get('--cell-fill'));
+    for (const stop of dampedStops()) {
+      for (const [label, traced] of [['--gold-wash', wash], ['--gold-glow', glow]]) {
+        assert.ok(rgbDistance(over(stop.color, traced), over(stop.color, tint)) >= 8,
+          `${label} stays distinguishable from r-${id} at the damped stop at ${stop.at}%`);
+      }
     }
   }
 });
