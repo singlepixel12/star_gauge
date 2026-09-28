@@ -24,3 +24,30 @@ export function nextRegionsState(currentAriaPressed) {
   const on = !isPressed(currentAriaPressed);
   return { on, ariaPressed: pressedAttr(on) };
 }
+
+// --- Reset safeguard (PER-49) ---------------------------------------------
+
+/** The Reset button's resting label, restored on every cancel and after reset. */
+export const RESET_LABEL = 'Reset';
+/** What the same button says while it is waiting for the second press. */
+export const RESET_CONFIRM_LABEL = 'Reset again';
+/** Said once through #progress when Reset asks, never through a dialog. */
+export const RESET_CONFIRM_MESSAGE = 'Press Reset again to clear this trace. Press Escape to keep it.';
+
+/**
+ * A start alone, or a single line, is quicker to retrace than to confirm, so
+ * only a trace of two or more committed lines is worth asking about.
+ */
+export function resetNeedsConfirmation(lineCount) {
+  return lineCount >= 2;
+}
+
+/**
+ * What one Reset activation does.
+ * @param {{pending: boolean, lineCount: number}} state whether Reset is already
+ *   waiting for its second press, and how many lines are committed
+ * @returns {'reset'|'confirm'} clear the trace now, or ask first
+ */
+export function nextResetStep({ pending, lineCount }) {
+  return pending || !resetNeedsConfirmation(lineCount) ? 'reset' : 'confirm';
+}

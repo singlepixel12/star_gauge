@@ -5,7 +5,13 @@ import { regionAt } from './regions.js';
 import { buildPrompt } from './prompt.js';
 import { reverseReading } from './readings.js';
 import { pathToThreadGeometry } from './thread-path.js';
-import { nextRegionsState } from './controls.js';
+import {
+  nextRegionsState,
+  RESET_LABEL,
+  RESET_CONFIRM_LABEL,
+  RESET_CONFIRM_MESSAGE,
+  nextResetStep,
+} from './controls.js';
 import { silkVars } from './silk.js';
 import { isQuatrainMilestone } from './milestone.js';
 import { CENTER_NOTE, INITIAL_CELL, createRovingFocus } from './grid-navigation.js';
@@ -625,6 +631,44 @@ function maybeStartDemo() {
   startDemo({ automatic: true });
 }
 
+// --- Reset safeguard ----------------------------------------------------
+
+// Two or more lines are real work, so Reset asks once before clearing them
+// (the decision lives in ./controls.js). The question is the button itself:
+// its label turns to "Reset again", #progress says how to go on or back, and
+// focus never moves — Enter or Space on the same native button confirms. No
+// dialog, no timer: the question lasts until the visitor answers it.
+let resetPending = false;
+
+function askResetConfirmation() {
+  resetPending = true;
+  resetBtn.textContent = RESET_CONFIRM_LABEL;
+  announce(RESET_CONFIRM_MESSAGE);
+}
+
+// Drops the question and restores the resting label. Callers about to re-render
+// leave the status to that render; everyone else goes through cancel below.
+function endResetConfirmation() {
+  resetPending = false;
+  resetBtn.textContent = RESET_LABEL;
+}
+
+function cancelResetConfirmation() {
+  if (!resetPending) return;
+  endResetConfirmation();
+  announce(statusMessage());
+}
+
+// Captured on the document, so any other trusted click or key cancels before
+// the control it lands on does its own work. Escape cancels wherever focus is;
+// anything else aimed at Reset itself — the second click, Enter, Space — is
+// left alone to confirm.
+function onResetGuardAction(event) {
+  if (!resetPending || !event.isTrusted) return;
+  if (event.type === 'keydown' && event.key === 'Escape') return cancelResetConfirmation();
+  if (!resetBtn.contains(event.target)) cancelResetConfirmation();
+}
+
 async function onCopyPrompt() {
   try {
     await navigator.clipboard.writeText(promptTextEl.value);
@@ -652,10 +696,20 @@ undoBtn.addEventListener('click', () => {
   render();
 });
 resetBtn.addEventListener('click', () => {
+  if (nextResetStep({ pending: resetPending, lineCount: selection.lineCount() }) === 'confirm') {
+    // A running walkthrough stops pressing buttons while the visitor decides,
+    // but its trace stays: it is what the question is about.
+    cancelDemo();
+    return askResetConfirmation();
+  }
+  endResetConfirmation();
   cancelDemo({ clearSelection: true });
   selection.reset();
   render();
 });
+resetBtn.addEventListener('blur', cancelResetConfirmation);
+document.addEventListener('click', onResetGuardAction, true);
+document.addEventListener('keydown', onResetGuardAction, true);
 regionsToggle.addEventListener('click', () =>
   applyRegionsState(nextRegionsState(regionsToggle.getAttribute('aria-pressed'))));
 copyPromptBtn.addEventListener('click', onCopyPrompt);
@@ -687,6 +741,7 @@ window.addEventListener('hashchange', () => {
   // otherwise land on top of the trace the link just named, extending someone
   // else's poem by however many moves were left to play.
   cancelDemo();
+  endResetConfirmation();
   selection = decodePath(location.hash, GRID);
   renderRestoredPath();
 });

@@ -258,11 +258,18 @@ test('roving focus: a move reports exactly the two cells whose tabindex changes'
 
 test('src/app.js: one delegated keydown listener, on the grid and nowhere else', () => {
   const listeners = appJs.match(/addEventListener\('key\w+'/g) ?? [];
-  assert.deepEqual(listeners, ["addEventListener('keydown'"], 'exactly one key listener in the app');
+  // PER-49 adds exactly one more: the Reset safeguard's capture listener, which
+  // only drops a pending "Reset again" and never consumes a key.
+  assert.deepEqual(listeners, ["addEventListener('keydown'", "addEventListener('keydown'"],
+    'the grid listener plus the Reset safeguard, and nothing else');
   assert.match(appJs, /gridEl\.addEventListener\('keydown', onGridKeyDown\)/,
     'and it is delegated on #grid, not on 841 cells and not on the document');
-  assert.doesNotMatch(appJs, /(?:document|window)\.addEventListener\('key/,
-    'no global key handler: arrow keys outside the grid are not ours');
+  const globalKeys = appJs.match(/(?:document|window)\.addEventListener\('key[^\r\n]*/g) ?? [];
+  assert.deepEqual(globalKeys.map((l) => l.trim()), ["document.addEventListener('keydown', onResetGuardAction, true);"],
+    'the only document key listener is the Reset safeguard');
+  const guard = functionBody(appJs, 'onResetGuardAction');
+  assert.doesNotMatch(guard, /preventDefault|stopPropagation|Arrow|roving/,
+    'which never takes a key away from the grid: arrow keys outside the grid are not ours');
   const body = functionBody(appJs, 'onGridKeyDown');
   assert.match(body, /closest\('\.cell'\)/, 'the handler only answers to grid cells');
   assert.match(body, /gridEl\.contains\(cellEl\)/, 'and only to cells inside this grid');
@@ -325,8 +332,8 @@ test('src/app.js: the tab stop has exactly one writer, and it is selection-indep
   // test protects is unchanged: neither one touches the tab stop, so the
   // reader's place in the grid survives an undo and a reset.
   for (const handler of ['undoBtn', 'resetBtn']) {
-    const from = appJs.indexOf(`${handler}.addEventListener('click'`);
-    const listener = appJs.slice(from, from + 260);
+    // The whole handler, however long: PER-49 put Reset's question in front of it.
+    const listener = appJs.match(new RegExp(`${handler}\\.addEventListener\\('click', \\(\\) => \\{[\\s\\S]*?\\n\\}\\);`))[0];
     assert.match(listener, /selection\.(?:undo|reset)\(\);/, `${handler} still goes through the selection`);
     assert.match(listener, /render\(\);/, `${handler} still re-renders`);
     assert.doesNotMatch(listener, /tabIndex/, `${handler} still does not move the tab stop`);

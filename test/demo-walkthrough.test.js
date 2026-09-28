@@ -199,6 +199,13 @@ test('Undo and Reset explicitly invalidate pending walkthrough work', () => {
     appJs,
     /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?cancelDemo\(\{ clearSelection: true \}\);[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
   );
+  // PER-49: when Reset first asks, the walkthrough's scheduled steps stop but
+  // its trace stays on the cloth; only the immediate or confirmed reset clears.
+  const resetHandler = appJs.match(/resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);/)[0];
+  const askAt = resetHandler.indexOf("=== 'confirm'");
+  const confirmBranch = resetHandler.slice(askAt, resetHandler.indexOf('}', askAt));
+  assert.match(confirmBranch, /cancelDemo\(\);/, 'asking stops the walkthrough');
+  assert.doesNotMatch(confirmBranch, /clearSelection|selection\.reset/, 'but keeps its trace');
   assert.match(functionBody(appJs, 'startDemo'), /demoActive && generation === demoGeneration/,
     'scheduled callbacks are generation-guarded');
   assert.doesNotMatch(appJs, /setInterval/);

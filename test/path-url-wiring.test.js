@@ -109,6 +109,19 @@ test('a fragment arriving later replaces the cloth through the same replay', () 
   assert.ok(listener, 'expected a hashchange listener');
   assert.match(listener[0], /selection = decodePath\(location\.hash, GRID\);/, 'the new address is replayed, not patched');
   assert.match(listener[0], /renderRestoredPath\(\);/, 'and shown settled, like any restored path');
+  // PER-49: a pending "Reset again?" belonged to the trace the address just replaced.
+  assert.match(listener[0], /endResetConfirmation\(\);[\s\S]*renderRestoredPath\(\);/,
+    'a new address drops a pending reset question before replaying');
+});
+
+test('asking to reset leaves the address alone; only the confirmed reset rewrites it', () => {
+  const handler = appJs.match(/resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);/)[0];
+  const askAt = handler.indexOf("=== 'confirm'");
+  assert.ok(askAt > -1, 'Reset asks before clearing a longer trace');
+  const confirmBranch = handler.slice(askAt, handler.indexOf('}', askAt));
+  assert.doesNotMatch(confirmBranch, /render\(|syncLocationHash|history\.|selection\.reset/,
+    'the first press writes nothing to the address');
+  assert.doesNotMatch(functionBody(appJs, 'askResetConfirmation'), /render\(|syncLocationHash|history\./);
 });
 
 test('a resize redraws without touching the address', () => {

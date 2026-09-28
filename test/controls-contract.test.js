@@ -28,7 +28,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { nextRegionsState, isPressed, pressedAttr } from '../src/controls.js';
+import {
+  nextRegionsState, isPressed, pressedAttr,
+  RESET_LABEL, RESET_CONFIRM_LABEL, RESET_CONFIRM_MESSAGE, resetNeedsConfirmation, nextResetStep,
+} from '../src/controls.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
@@ -257,7 +260,7 @@ test('src/app.js: the click handler applies both DOM writes from that one state'
   assert.doesNotMatch(appJs, /regionsToggle\.checked/, 'no checkbox .checked reads remain');
   assert.match(
     appJs,
-    /import \{ nextRegionsState \} from '\.\/controls\.js';/,
+    /import \{\s*nextRegionsState,\s*RESET_LABEL,\s*RESET_CONFIRM_LABEL,\s*RESET_CONFIRM_MESSAGE,\s*nextResetStep,\s*\} from '\.\/controls\.js';/,
     'the app takes the transition from the tested module',
   );
   assert.match(
@@ -278,6 +281,95 @@ test('src/app.js: the click handler applies both DOM writes from that one state'
     1,
     'exactly one place writes .show-regions',
   );
+});
+
+// --- PER-49: the Reset safeguard, actually run ----------------------------
+
+test('src/controls.js: a start or a single line resets at once; two or more lines ask first', () => {
+  assert.equal(resetNeedsConfirmation(0), false, 'a start-only trace has nothing worth guarding');
+  assert.equal(resetNeedsConfirmation(1), false, 'one line is cheaper to retrace than to confirm');
+  for (const n of [2, 3, 4, 5, 8]) assert.equal(resetNeedsConfirmation(n), true, `${n} lines ask first`);
+
+  assert.equal(nextResetStep({ pending: false, lineCount: 0 }), 'reset');
+  assert.equal(nextResetStep({ pending: false, lineCount: 1 }), 'reset');
+  assert.equal(nextResetStep({ pending: false, lineCount: 2 }), 'confirm', 'first press on a real trace asks');
+  assert.equal(nextResetStep({ pending: false, lineCount: 4 }), 'confirm');
+  assert.equal(nextResetStep({ pending: true, lineCount: 4 }), 'reset', 'the second press clears');
+  assert.equal(nextResetStep({ pending: true, lineCount: 2 }), 'reset');
+});
+
+test('src/controls.js: the safeguard speaks in the agreed words, exactly', () => {
+  assert.equal(RESET_LABEL, 'Reset');
+  assert.equal(RESET_CONFIRM_LABEL, 'Reset again');
+  assert.equal(RESET_CONFIRM_MESSAGE, 'Press Reset again to clear this trace. Press Escape to keep it.');
+  // The markup ships the same resting label the app restores on every cancel.
+  assert.match(element(controlsSection(), 'reset'), new RegExp(`>${RESET_LABEL}<`));
+});
+
+// --- PER-49: the Reset safeguard, as wired -------------------------------
+
+// The Reset click handler, whole: from its addEventListener to its closing line.
+function resetHandler() {
+  const m = appJs.match(/resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);/);
+  assert.ok(m, 'expected the Reset click handler');
+  return m[0];
+}
+
+function appFunction(name) {
+  const start = appJs.indexOf(`function ${name}(`);
+  assert.ok(start > -1, `expected a function ${name}`);
+  const rest = appJs.slice(start + 1);
+  const next = rest.search(/\n(?:async )?function /);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+test('src/app.js: Reset asks through the tested decision, before touching the selection', () => {
+  assert.match(appJs, /import \{[^}]*\bnextResetStep\b[^}]*\} from '\.\/controls\.js';/);
+  const handler = resetHandler();
+  assert.match(handler, /nextResetStep\(\{ pending: resetPending, lineCount: selection\.lineCount\(\) \}\)/);
+  const askAt = handler.indexOf("=== 'confirm'");
+  const resetAt = handler.indexOf('selection.reset();');
+  assert.ok(askAt > -1 && askAt < resetAt, 'the question is asked before anything is cleared');
+  const confirmBranch = handler.slice(askAt, handler.indexOf('}', askAt));
+  assert.match(confirmBranch, /return askResetConfirmation\(\);/, 'the first press stops at the question');
+  // Nothing on the first press may change the trace, the address or the output.
+  assert.doesNotMatch(confirmBranch, /selection\.|render\(|syncLocationHash|clearSelection/);
+  // The confirmed reset is the same path as before: one reset, one render.
+  assert.match(handler, /endResetConfirmation\(\);[\s\S]*?cancelDemo\(\{ clearSelection: true \}\);\s*selection\.reset\(\);\s*render\(\);\s*\}\);$/);
+});
+
+test('src/app.js: the question is the button and the status — no new surface, no motion', () => {
+  const ask = appFunction('askResetConfirmation');
+  assert.match(ask, /resetPending = true;/);
+  assert.match(ask, /resetBtn\.textContent = RESET_CONFIRM_LABEL;/, 'the existing button changes its words');
+  assert.match(ask, /announce\(RESET_CONFIRM_MESSAGE\);/, 'and #progress says how to go on or back');
+  // Focus stays where the visitor put it: on the native button, so Enter and
+  // Space confirm through its own click.
+  assert.doesNotMatch(ask, /\.focus\(|setTimeout|classList|createElement|scrollIntoView/);
+  const end = appFunction('endResetConfirmation');
+  assert.match(end, /resetPending = false;/);
+  assert.match(end, /resetBtn\.textContent = RESET_LABEL;/, 'the resting label comes back');
+  const cancel = appFunction('cancelResetConfirmation');
+  assert.match(cancel, /if \(!resetPending\) return;/);
+  assert.match(cancel, /endResetConfirmation\(\);/);
+  assert.match(cancel, /announce\(statusMessage\(\)\);/, 'the status stops asking once the question is gone');
+  assert.equal((appJs.match(/resetBtn\.textContent =/g) ?? []).length, 2, 'only ask and end write the label');
+});
+
+test('src/app.js: Escape, leaving Reset, any other trusted action and a new address cancel', () => {
+  const guard = appFunction('onResetGuardAction');
+  assert.match(guard, /if \(!resetPending \|\| !event\.isTrusted\) return;/, 'only a real visitor cancels');
+  assert.match(guard, /event\.key === 'Escape'/, 'Escape keeps the trace');
+  assert.match(guard, /resetBtn\.contains\(event\.target\)/, 'Enter, Space and the second click on Reset go through');
+  assert.match(guard, /cancelResetConfirmation\(\)/);
+  // Capture phase, so the cancel lands before the other control's own handler.
+  assert.match(appJs, /document\.addEventListener\('click', onResetGuardAction, true\);/);
+  assert.match(appJs, /document\.addEventListener\('keydown', onResetGuardAction, true\);/);
+  assert.match(appJs, /resetBtn\.addEventListener\('blur', cancelResetConfirmation\);/, 'leaving Reset cancels');
+  const hashchange = appJs.match(/addEventListener\('hashchange',[\s\S]*?\n\}\);/)[0];
+  const endAt = hashchange.indexOf('endResetConfirmation();');
+  assert.ok(endAt > -1 && endAt < hashchange.indexOf('renderRestoredPath();'),
+    'a new address drops the question before it replaces the cloth');
 });
 
 // --- status copy, in full ------------------------------------------------
