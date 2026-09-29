@@ -152,6 +152,15 @@ test('non-completion rerenders and resize cancel pending completion work', () =>
     /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
     'reset cancels demo work and re-renders without animation',
   );
+  // PER-49: the first Reset press on a longer trace only asks, so a pending
+  // completion is left alone; the confirmed reset's render() is what ends it.
+  const resetHandler = appJs.match(/resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);/)[0];
+  const askAt = resetHandler.indexOf("=== 'confirm'");
+  assert.ok(askAt > -1, 'Reset asks before clearing a longer trace');
+  const confirmBranch = resetHandler.slice(askAt, resetHandler.indexOf('}', askAt));
+  assert.doesNotMatch(confirmBranch, /render\(|endCompletionMoment|clearPendingReveal/);
+  assert.doesNotMatch(functionBody(appJs, 'askResetConfirmation'), /REDUCED_MOTION|setTimeout|animat/,
+    'the question adds no motion of its own');
 });
 
 test('live output remains available from line one', () => {
