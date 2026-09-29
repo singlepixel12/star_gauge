@@ -30,6 +30,14 @@
 //     arrow keys inside the compass are the browser's business, not the grid's.
 //   * that the gold focus ring is visible on every fill it can land on —
 //     including over a traced cell, the junction, and the centre's halo.
+//   * PER-53, the real DOM tab order (the tests below simulate app.js's writes,
+//     not the browser):
+//       1. Arrow three cells right, Tab to the compass, Shift+Tab back: focus
+//          lands on the arrowed-to cell.
+//       2. Arrow away, click another cell, then Tab: focus leaves the grid in
+//          one press.
+//       3. The focus ring is drawn on the cell that actually has focus,
+//          including 心.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -215,6 +223,13 @@ test('roving focus: exactly one tab stop, through a long run of keys and clicks'
     const key = keys[next() % keys.length];
     const before = roving.active();
     const action = roving.handleKey(key);
+    // handleKey only reports; a real move is applied through focusOn, exactly
+    // as app.js's focusCell → setTabStop does (PER-53).
+    assert.deepEqual(roving.active(), before, `${key}: handleKey itself moves nothing`);
+    if (action?.type === 'move' && action.moved) {
+      assert.deepEqual(roving.focusOn(action.to), { from: before, to: action.to },
+        `${key}: the move is applied as exactly one pair of flips`);
+    }
     if (action === null || action.type === 'activate') {
       // Neither a key we do not own nor an activation may move the tab stop:
       // choosing a cell is not a navigation, and Tab must stay the browser's.
@@ -235,17 +250,134 @@ test('roving focus: exactly one tab stop, through a long run of keys and clicks'
   }
 });
 
+// PER-53: the model and the DOM must not diverge. This mirrors app.js exactly —
+// buildGrid stamps every cell from tabIndexFor, setTabStop applies only the two
+// flips focusOn reports, onGridKeyDown asks handleKey what the key means and
+// then goes through focusCell → setTabStop, and onCellClick goes through
+// setTabStop — and counts the *simulated DOM*, not the model.
+function simulatedApp(initial) {
+  const roving = createRovingFocus(initial);
+  const dom = Array.from({ length: SIZE }, (_, row) =>
+    Array.from({ length: SIZE }, (_, col) => roving.tabIndexFor({ row, col })));
+  let flips = 0;
+  const setTabStop = (cell) => {
+    const moved = roving.focusOn(cell);
+    if (!moved) return;
+    dom[moved.from.row][moved.from.col] = -1;
+    dom[moved.to.row][moved.to.col] = 0;
+    flips++;
+  };
+  let focused = roving.active();
+  return {
+    roving,
+    flips: () => flips,
+    focused: () => ({ ...focused }),
+    key(key) {
+      setTabStop(focused);
+      const action = roving.handleKey(key);
+      if (action?.type === 'move' && action.moved) {
+        setTabStop(action.to);
+        focused = action.to;
+      }
+      return action;
+    },
+    click(cell) {
+      setTabStop(cell);
+      focused = { ...cell };
+    },
+    assertDomOneTabStop(when) {
+      const stops = [];
+      for (let row = 0; row < SIZE; row++) {
+        for (let col = 0; col < SIZE; col++) {
+          if (dom[row][col] === 0) stops.push({ row, col });
+        }
+      }
+      assert.equal(stops.length, 1, `${when}: exactly one DOM cell has tabIndex 0`);
+      assert.deepEqual(stops[0], roving.active(), `${when}: and it is the active cell`);
+      assert.deepEqual(stops[0], focused, `${when}: which is the cell that has focus`);
+    },
+  };
+}
+
+test('roving focus: the DOM tab stop follows arrows, clicks, and arrows then a click (PER-53)', () => {
+  // Arrows alone: each real move flips exactly one pair.
+  const app = simulatedApp({ row: 10, col: 10 });
+  app.assertDomOneTabStop('on build');
+  for (const key of ['ArrowRight', 'ArrowRight', 'ArrowRight']) {
+    app.key(key);
+    app.assertDomOneTabStop(`after ${key}`);
+  }
+  assert.deepEqual(app.roving.active(), { row: 10, col: 13 }, 'three cells right');
+  assert.equal(app.flips(), 3, 'one pair of flips per arrow');
+
+  // Arrows, then a click elsewhere: the arrowed-from cells do not keep a stop.
+  app.click({ row: 2, col: 5 });
+  app.assertDomOneTabStop('after arrows then a click');
+  app.key('ArrowDown');
+  app.assertDomOneTabStop('after a click then an arrow');
+
+  // Clicks alone, including a click on the stop itself (no flips).
+  const clicks = simulatedApp();
+  for (const cell of [{ row: 5, col: 5 }, { row: 5, col: 5 }, { row: 28, col: 0 }, CENTER]) {
+    clicks.click(cell);
+    clicks.assertDomOneTabStop(`after a click on ${cell.row},${cell.col}`);
+  }
+  assert.equal(clicks.flips(), 3, 'a click on the current stop writes nothing');
+
+  // Through the centre and out again: navigable, and the DOM keeps up.
+  const centre = simulatedApp({ row: 14, col: 12 });
+  for (const key of ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowUp']) {
+    centre.key(key);
+    centre.assertDomOneTabStop(`crossing the centre, after ${key}`);
+  }
+  centre.click({ row: 0, col: 0 });
+  centre.assertDomOneTabStop('clicking away after crossing the centre');
+
+  // Selvedge: the arrow is still the grid's, but nothing is written.
+  const edge = simulatedApp({ row: 0, col: 28 });
+  for (const key of ['ArrowUp', 'ArrowRight']) {
+    const action = edge.key(key);
+    assert.equal(action.type, 'move', `${key} at the selvedge is consumed`);
+    assert.equal(action.moved, false, `${key} at the selvedge moves nothing`);
+    edge.assertDomOneTabStop(`after ${key} at the selvedge`);
+  }
+  assert.equal(edge.flips(), 0, 'a selvedge arrow causes no tab-index flips');
+
+  // Activation and Tab leave the DOM alone too.
+  for (const key of ['Enter', ' ', 'Tab']) edge.key(key);
+  edge.assertDomOneTabStop('after Enter, Space and Tab');
+  assert.equal(edge.flips(), 0, 'neither activation nor Tab writes a tabindex');
+});
+
+test('roving focus: a long run of arrows and clicks never leaves two DOM tab stops (PER-53)', () => {
+  const app = simulatedApp();
+  const keys = [...ARROWS, ...ACTIVATION_KEYS, 'Tab', 'Escape'];
+  let seed = 53;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+  for (let i = 0; i < 1500; i++) {
+    if (i % 5 === 0) app.click({ row: next() % SIZE, col: next() % SIZE });
+    else app.key(keys[next() % keys.length]);
+    app.assertDomOneTabStop(`step ${i}`);
+  }
+});
+
 test('roving focus: a move reports exactly the two cells whose tabindex changes', () => {
   const roving = createRovingFocus({ row: 10, col: 10 });
   const action = roving.handleKey('ArrowRight');
   assert.deepEqual(action.from, { row: 10, col: 10 }, 'the cell losing the stop');
   assert.deepEqual(action.to, { row: 10, col: 11 }, 'the cell taking it');
+  // The key is only reported; applying it is focusOn's, which hands app.js the
+  // same pair to flip (PER-53).
+  assert.deepEqual(roving.focusOn(action.to), { from: action.from, to: action.to },
+    'applying the move reports the same two cells');
   assert.equal(roving.tabIndexFor(action.from), -1);
   assert.equal(roving.tabIndexFor(action.to), 0);
   // Nothing to change when the stop is already there — app.js writes no
   // attributes at all in that case.
   assert.equal(roving.focusOn({ row: 10, col: 11 }), null, 'a click on the stop is a no-op');
-  assert.equal(roving.handleKey('ArrowUp').moved, true);
+  const up = roving.handleKey('ArrowUp');
+  assert.equal(up.moved, true);
+  roving.focusOn(up.to);
   assert.deepEqual(roving.active(), { row: 9, col: 11 });
   // The returned coordinates are copies: callers cannot reach in and move the
   // stop by mutating them.

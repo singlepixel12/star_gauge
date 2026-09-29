@@ -107,11 +107,15 @@ export function createRovingFocus(initial = INITIAL_CELL) {
       return { from, to };
     },
 
-    /** keyAction() at the current stop, advancing the stop on a real move. */
+    /**
+     * keyAction() at the current stop. A query only: it does not move the
+     * stop. The caller applies a real move through focusOn(action.to), so the
+     * stop only ever advances together with the two flips focusOn reports —
+     * advancing it here would leave focusOn nothing to report, and the DOM
+     * behind (PER-53).
+     */
     handleKey(key) {
-      const action = keyAction(key, active);
-      if (action?.type === 'move' && action.moved) active = action.to;
-      return action;
+      return keyAction(key, active);
     },
   };
 }
