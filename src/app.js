@@ -11,6 +11,7 @@ import { isQuatrainMilestone } from './milestone.js';
 import { CENTER_NOTE, INITIAL_CELL, createRovingFocus } from './grid-navigation.js';
 import { decodePath, encodePath } from './path-codec.js';
 import { demoSteps, demoStepDelay } from './demo.js';
+import { buildExportScene, paintScene } from './export-image.js';
 
 // v1: the live OpenAI call is intentionally disabled. To enable later:
 //   1) set LLM_ENABLED = true,
@@ -50,6 +51,7 @@ const poemReverseEl = document.getElementById('poem-zh-reverse');
 const promptStatusEl = document.getElementById('prompt-status');
 const promptTextEl = document.getElementById('prompt-text');
 const copyPromptBtn = document.getElementById('copy-prompt');
+const exportBtn = document.getElementById('export-image');
 const translateBtn = document.getElementById('translate');
 const englishHelpEl = document.getElementById('english-help');
 // The card the finished poem sits in — the thing the completion moment reveals.
@@ -595,6 +597,8 @@ function startDemo({ automatic = false } = {}) {
 function onVisitorAction(event) {
   if (!demoRunning() || !event.isTrusted) return;
   if (demoBtn.contains(event.target) || undoBtn.contains(event.target) || resetBtn.contains(event.target)) return;
+  // Saving a picture of the walkthrough is watching it, not taking it over.
+  if (exportBtn.contains(event.target)) return;
   const clearSelection = !compassEl.contains(event.target);
   cancelDemo({ clearSelection });
   render();
@@ -636,6 +640,64 @@ async function onCopyPrompt() {
   setTimeout(() => { copyPromptBtn.textContent = 'Copy translation prompt'; }, 1800);
 }
 
+// --- Save as image (PER-47) ---------------------------------------------
+
+const EXPORT_SCALE = 2; // device pixels per scene pixel, so the glyphs stay crisp when zoomed
+// Spoken through announce(), so #progress stays the page's one live region.
+const EXPORT_WORKING = 'Preparing the brocade image…';
+const EXPORT_SAVED = 'Brocade image saved as star-gauge.png.';
+const EXPORT_FAILED = 'Could not save the brocade image. Please try again.';
+
+// True while an export is running. It stands in for disabling the button: a
+// disabled button that has focus drops it to <body>, so the button stays
+// enabled and focused, and a second press during the export is simply absorbed.
+let exportInFlight = false;
+
+// A still of the cloth as traced: GRID's own characters, the committed lines
+// and the thread, painted offscreen by src/export-image.js. It is a snapshot —
+// the trace is read once, up front, and nothing on the page is written back:
+// no render, no address, no scroll, no compass, no completion moment. A strand
+// still drawing on screen is exported finished, because the lines are already
+// committed. Colour regions are never passed in, whatever the toggle says.
+async function onExportImage() {
+  if (exportInFlight) return;
+  const lines = selection.allLines();
+  if (lines.length === 0) return;
+  exportInFlight = true;
+  announce(EXPORT_WORKING);
+  try {
+    // The glyphs are rasterized into the PNG, so the CJK faces must have
+    // settled first or the image would freeze a fallback font into the pixels.
+    await document.fonts.ready;
+    const scene = buildExportScene(GRID, lines);
+    const canvas = document.createElement('canvas');
+    canvas.width = scene.width * EXPORT_SCALE;
+    canvas.height = scene.height * EXPORT_SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+    paintScene(ctx, scene);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('canvas produced no image');
+    saveBlob(blob, 'star-gauge.png');
+    announce(EXPORT_SAVED);
+  } catch {
+    announce(EXPORT_FAILED);
+  } finally {
+    exportInFlight = false;
+  }
+}
+
+// A download through a detached link: never attached to the page, and a
+// download link does not navigate, so the address keeps its #path.
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 // Colour regions is a native button toggle, so aria-pressed *is* the state.
 // The transition itself lives in ./controls.js (pure, and so testable); this
 // only applies it, writing the attribute and the body class out of the one
@@ -659,6 +721,7 @@ resetBtn.addEventListener('click', () => {
 regionsToggle.addEventListener('click', () =>
   applyRegionsState(nextRegionsState(regionsToggle.getAttribute('aria-pressed'))));
 copyPromptBtn.addEventListener('click', onCopyPrompt);
+exportBtn.addEventListener('click', onExportImage);
 demoBtn.addEventListener('click', () => { if (demoRunning()) stopDemo(); else startDemo(); });
 // Capture trusted clicks so mouse, keyboard, screen-reader and voice-control
 // activations all stop the demo before the page's own handler runs. Synthetic

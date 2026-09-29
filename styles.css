@@ -585,6 +585,22 @@ body {
   background: var(--silk-deep); border: 1px solid var(--gold); border-radius: 4px;
 }
 .card button:disabled { opacity: .4; cursor: not-allowed; }
+/* Save-as-image (PER-47): its own full-width row after the cards, since
+   the poem card holds readings only. The caveat rides alongside and wraps
+   beneath the button on a narrow screen. */
+.export-row {
+  grid-column: 1 / -1;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .75rem;
+}
+.export-row button {
+  flex: none; font: inherit; padding: .35rem .8rem; cursor: pointer;
+  color: var(--ink);
+  background: var(--silk-deep); border: 1px solid var(--gold); border-radius: 4px;
+}
+.export-row button:hover:not(:disabled) { border-color: var(--gold-ink); background: var(--gold-glow); }
+.export-row button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.export-row button:disabled { opacity: .4; cursor: not-allowed; }
+.export-row .hint { flex: 1 1 26ch; min-width: 0; font-style: italic; }
 /* The disabled Translate button is an intentional v1 state (LLM_ENABLED = false), not a broken control. */
 .english-block button:disabled {
   opacity: .6; cursor: default;
@@ -700,6 +716,7 @@ footer.credits a { color: var(--gold-ink); }
   :root { --compass-btn: 44px; }
   .controls button { min-height: 44px; }
   .demo-button { min-height: 44px; }
+  .export-row button { min-height: 44px; }
 }
 /* Matches the REDUCED_MOTION handling in src/app.js (smooth scroll → auto) */
 @media (prefers-reduced-motion: reduce) {
