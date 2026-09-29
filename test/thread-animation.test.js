@@ -4,6 +4,22 @@
 // old strands from re-animating is *which* call asks for animation and *which*
 // single strand gets the class. Both live in source rather than in reachable
 // runtime state, so — like output-contract.test.js — this is a source contract.
+//
+// PER-51: app.js is shared by nearly every ticket, so the assertions below are
+// scoped to what PER-23 owns — the compass commit, the render intent, the
+// strand-drawing class — and say where a thing lives rather than how many
+// times the whole file mentions it.
+//
+// WHAT THIS FILE CANNOT COVER — needs manual validation.
+// There is no DOM and no SVG renderer here (no jsdom, no playwright —
+// deliberately: vanilla site, no build step, no dependencies). These remain
+// manual checks, served over HTTP:
+//   * that the newest strand is visibly drawn from its start cell outward, in
+//     about the same time in all eight directions, and older strands do not
+//     redraw on undo, reset, resize or a restored link;
+//   * that the gold still reads through the ink (mix-blend-mode: multiply) in
+//     the browsers we target;
+//   * that prefers-reduced-motion really shows the strand complete at once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,6 +34,30 @@ function functionBody(source, name) {
   const rest = source.slice(start + 1);
   const next = rest.search(/\n(?:async )?function /);
   return next === -1 ? rest : rest.slice(0, next);
+}
+
+// Every match of `pattern` in app.js lies inside one of `owners` — slices of
+// app.js. Ownership rather than a count (PER-51): an unrelated edit elsewhere
+// in the shared file cannot trip it, but a second owner still does.
+function assertOwnedBy(pattern, owners, message) {
+  const ranges = owners.map((slice) => {
+    const at = appJs.indexOf(slice);
+    assert.ok(at > -1, 'each owner is a slice of app.js');
+    return [at, at + slice.length];
+  });
+  const matches = [...appJs.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))];
+  assert.ok(matches.length > 0, `sanity: ${pattern} occurs in app.js`);
+  for (const m of matches) {
+    assert.ok(ranges.some(([from, to]) => m.index >= from && m.index < to),
+      `${message} (found ${JSON.stringify(m[0])} at offset ${m.index})`);
+  }
+}
+
+// A top-level click handler, whole, from its addEventListener to its closing line.
+function clickHandler(name) {
+  const m = appJs.match(new RegExp(String.raw`${name}\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);`));
+  assert.ok(m, `expected the ${name} click handler`);
+  return m[0];
 }
 
 const CSS_NO_COMMENTS = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -57,7 +97,7 @@ test('drawThread and render default to no animation', () => {
 });
 
 test('only a successful addLine asks for animation', () => {
-  const handler = appJs.match(/btn\.addEventListener\('click',[\s\S]*?\n {4}\}\);/);
+  const handler = functionBody(appJs, 'buildCompass').match(/btn\.addEventListener\('click',[\s\S]*?\n {4}\}\);/);
   assert.ok(handler, 'compass buttons have a click handler');
   assert.match(handler[0], /=\s*selection\.addLine\(dir\)/, "the handler keeps addLine's success flag");
   assert.match(
@@ -65,37 +105,37 @@ test('only a successful addLine asks for animation', () => {
     /render\(\{\s*animateNewest:\s*added\b/,
     'animation is requested only when the line was actually committed',
   );
+  assert.equal((handler[0].match(/animateNewest/g) ?? []).length, 1, 'and asked for once, there');
 
-  // Exactly one call site in the whole file may request animation. PER-43's
-  // restored path names the same intent, but only to switch it *off*, so what
-  // is counted is the sites that turn animation on rather than the sites that
-  // mention it — a second site actually asking for it still fails this.
-  const mentions = appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [];
-  const requests = mentions.filter((call) => !/animateNewest:\s*false\b/.test(call));
-  assert.equal(requests.length, 1, 'no other call site turns animation on');
-  assert.equal(mentions.length - requests.length, 1, 'and the only other mention switches it off');
+  // Every render call that could turn animation on lives in that handler. Any
+  // other call may name the intent only to switch it off outright, as PER-43's
+  // restored path does — so a second site actually asking for it still fails,
+  // while an unrelated ticket adding a non-animating call site does not
+  // (PER-51: owned, not counted).
+  const ANIMATION_REQUEST = /render\(\{(?![^}]*animateNewest:\s*false\b)[^}]*animateNewest[^}]*\}\)/;
+  assertOwnedBy(ANIMATION_REQUEST, [handler[0]], 'no other call site turns animation on');
 });
 
 test('undo, reset, start and the initial render do not animate', () => {
-  assert.match(
-    appJs,
-    /undoBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.undo\(\);\s*render\(\);\s*\}\);/,
-    'undo cancels any walkthrough before re-rendering without animation',
-  );
-  assert.match(
-    appJs,
-    /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
-    'reset cancels any walkthrough before re-rendering without animation',
-  );
+  // Each handler is read whole and on its own (PER-51), so what else it does
+  // first — cancelling a walkthrough, asking before a reset — is its business.
+  for (const [name, call] of [['undoBtn', 'undo'], ['resetBtn', 'reset']]) {
+    const handler = clickHandler(name);
+    assert.match(handler, new RegExp(String.raw`selection\.${call}\(\);\s*render\(\);`),
+      `${call} re-renders with a bare render()`);
+    assert.doesNotMatch(handler, /animateNewest|revealCompletion/, `${call} never asks for animation`);
+  }
   assert.match(functionBody(appJs, 'onCellClick'), /render\(\);/, 'picking a start does not animate');
+  assert.doesNotMatch(functionBody(appJs, 'onCellClick'), /animateNewest/, 'nor asks for it');
   // The first paint is the restored one (PER-43): it draws whatever the address
   // carried — often nothing at all — and refuses the strand draw outright, so a
   // shared link never replays itself as though it were being traced live.
-  assert.match(
-    appJs,
-    /buildCompass\(\);\s*\r?\nrenderRestoredPath\(\);/,
-    'the initial render is the restored-path one',
-  );
+  // Read from the top-level bootstrap statements, not from which lines happen
+  // to sit next to each other.
+  const bootRender = appJs.match(/^(render|renderRestoredPath)\(\);?\s*$/m);
+  assert.ok(bootRender, 'the bootstrap paints once at load');
+  assert.equal(bootRender[1], 'renderRestoredPath', 'the initial render is the restored-path one');
+  assert.ok(appJs.search(/^buildCompass\(\);/m) < bootRender.index, 'painted once the compass exists');
   assert.match(
     functionBody(appJs, 'renderRestoredPath'),
     /render\(\{ animateNewest: false, revealCompletion: selection\.canExtract\(\) \}\)/,

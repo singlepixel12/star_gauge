@@ -9,7 +9,10 @@
 // src/controls.js precisely so it can be run rather than pattern-matched.
 //
 // What is *parsed* here: index.html and styles.css, read as declarations rather
-// than as loose text, so a rule has to actually say what we claim it says.
+// than as loose text, so a rule has to actually say what we claim it says —
+// and the controls' wiring in src/app.js. Since PER-51 those app.js checks are
+// scoped to the handlers and functions the controls own, and say where a
+// write lives rather than how many times the shared file mentions it.
 //
 // WHAT THIS FILE CANNOT COVER — needs manual/browser validation.
 // This repo has no DOM implementation and no CSS engine (no jsdom, no
@@ -258,9 +261,11 @@ test('src/controls.js: repeated clicks alternate, reading back what was written'
 
 test('src/app.js: the click handler applies both DOM writes from that one state', () => {
   assert.doesNotMatch(appJs, /regionsToggle\.checked/, 'no checkbox .checked reads remain');
+  // Whatever else the app imports from controls.js is another ticket's business
+  // (PER-51); what matters here is that the transition comes from there.
   assert.match(
     appJs,
-    /import \{\s*nextRegionsState,\s*RESET_LABEL,\s*RESET_CONFIRM_LABEL,\s*RESET_CONFIRM_MESSAGE,\s*nextResetStep,\s*\} from '\.\/controls\.js';/,
+    /import \{[^}]*\bnextRegionsState\b[^}]*\} from '\.\/controls\.js';/,
     'the app takes the transition from the tested module',
   );
   assert.match(
@@ -276,11 +281,8 @@ test('src/app.js: the click handler applies both DOM writes from that one state'
   );
   // And no second, hand-rolled copy of the transition anywhere in the app.
   assert.doesNotMatch(appJs, /aria-pressed'\)\s*!==\s*'true'/, 'the transition is not re-derived inline');
-  assert.equal(
-    appJs.match(/classList\.toggle\('show-regions'/g).length,
-    1,
-    'exactly one place writes .show-regions',
-  );
+  const apply = appJs.match(/function applyRegionsState\([^)]*\) \{[\s\S]*?\r?\n\}/)[0];
+  assertOwnedBy(/classList\.toggle\('show-regions'/, [apply], 'exactly one place writes .show-regions');
 });
 
 // --- PER-49: the Reset safeguard, actually run ----------------------------
@@ -323,6 +325,23 @@ function appFunction(name) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+// Every match of `pattern` in app.js lies inside one of `owners` — slices of
+// app.js. Ownership rather than a count (PER-51): an unrelated edit elsewhere
+// in the shared file cannot trip it, but a second writer still does.
+function assertOwnedBy(pattern, owners, message) {
+  const ranges = owners.map((slice) => {
+    const at = appJs.indexOf(slice);
+    assert.ok(at > -1, 'each owner is a slice of app.js');
+    return [at, at + slice.length];
+  });
+  const matches = [...appJs.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))];
+  assert.ok(matches.length > 0, `sanity: ${pattern} occurs in app.js`);
+  for (const m of matches) {
+    assert.ok(ranges.some(([from, to]) => m.index >= from && m.index < to),
+      `${message} (found ${JSON.stringify(m[0])} at offset ${m.index})`);
+  }
+}
+
 test('src/app.js: Reset asks through the tested decision, before touching the selection', () => {
   assert.match(appJs, /import \{[^}]*\bnextResetStep\b[^}]*\} from '\.\/controls\.js';/);
   const handler = resetHandler();
@@ -353,7 +372,7 @@ test('src/app.js: the question is the button and the status — no new surface, 
   assert.match(cancel, /if \(!resetPending\) return;/);
   assert.match(cancel, /endResetConfirmation\(\);/);
   assert.match(cancel, /announce\(statusMessage\(\)\);/, 'the status stops asking once the question is gone');
-  assert.equal((appJs.match(/resetBtn\.textContent =/g) ?? []).length, 2, 'only ask and end write the label');
+  assertOwnedBy(/resetBtn\.textContent =/, [ask, end], 'only ask and end write the label');
 });
 
 test('src/app.js: Escape, leaving Reset, any other trusted action and a new address cancel', () => {
@@ -375,12 +394,10 @@ test('src/app.js: Escape, leaving Reset, any other trusted action and a new addr
 // --- status copy, in full ------------------------------------------------
 
 test('src/app.js: every status message is present in full, character for character', () => {
-  // The complete set: one assignment, four branches, each quoted whole.
-  assert.equal(
-    appJs.match(/progressEl\.textContent/g).length,
-    1,
-    'the status is written in exactly one place',
-  );
+  // The complete set: one assignment, four branches, each quoted whole. The
+  // one assignment is announce()'s — owned, not counted across the file.
+  assertOwnedBy(/progressEl\.textContent/, [appFunction('announce')], 'the status is written in exactly one place');
+  assert.equal((appFunction('announce').match(/progressEl\.textContent/g) ?? []).length, 1);
   const messages = [
     "'Tap a character to begin.'",
     "'Now choose a direction on the compass — the line will run 7 characters.'",
