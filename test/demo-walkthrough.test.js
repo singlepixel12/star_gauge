@@ -9,9 +9,16 @@
 //
 // What is *parsed* here: src/app.js, index.html and styles.css, because this
 // repo has no DOM implementation (no jsdom, no playwright — vanilla site, no
-// build step). These remain manual checks: that the steps really are paced
-// apart on screen, that the strand draw and the quatrain reveal read as one
-// sequence, and that a real tap mid-walkthrough lands as the visitor's start.
+// build step). Since PER-51 the app.js assertions are scoped to the wiring the
+// walkthrough owns, and say where a thing lives rather than how many times the
+// shared file mentions it.
+//
+// WHAT THIS FILE CANNOT COVER — needs manual validation, served over HTTP:
+//   * that the steps really are paced apart on screen, and that the strand
+//     draw and the quatrain reveal read as one sequence;
+//   * that a real tap mid-walkthrough lands as the visitor's start;
+//   * that the demonstration-seen flag really persists across a reload, and
+//     that private browsing or disabled storage leaves the page working.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -38,6 +45,37 @@ function functionBody(source, name) {
   const rest = source.slice(start + 1);
   const next = rest.search(/\n(?:async )?function /);
   return next === -1 ? rest : rest.slice(0, next);
+}
+
+// Every match of `pattern` in app.js lies inside one of `owners` — slices of
+// app.js. Ownership rather than a count (PER-51): an unrelated edit elsewhere
+// in the shared file cannot trip it, but a second owner still does.
+function assertOwnedBy(pattern, owners, message) {
+  const ranges = owners.map((slice) => {
+    const at = appJs.indexOf(slice);
+    assert.ok(at > -1, 'each owner is a slice of app.js');
+    return [at, at + slice.length];
+  });
+  const matches = [...appJs.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))];
+  assert.ok(matches.length > 0, `sanity: ${pattern} occurs in app.js`);
+  for (const m of matches) {
+    assert.ok(ranges.some(([from, to]) => m.index >= from && m.index < to),
+      `${message} (found ${JSON.stringify(m[0])} at offset ${m.index})`);
+  }
+}
+
+// A top-level click handler, whole, from its addEventListener to its closing line.
+function clickHandler(name) {
+  const m = appJs.match(new RegExp(String.raw`${name}\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);`));
+  assert.ok(m, `expected the ${name} click handler`);
+  return m[0];
+}
+
+// The ResizeObserver callback, and only it.
+function resizeObserver() {
+  const m = appJs.match(/new ResizeObserver\(\(\) => \{[\s\S]*?\}\)\.observe\(gridEl\)/);
+  assert.ok(m, 'the grid resize observer is present');
+  return m[0];
 }
 
 // --- the path, played ----------------------------------------------------
@@ -147,11 +185,16 @@ test('the walkthrough presses the real controls rather than adding a render path
   // walkthrough inherits the strand draw and the quatrain reveal instead of
   // asking for its own.
   // PER-43's restore also names animateNewest — but names it false, because a
-  // path that came back from the address was not drawn just now. Only the call
-  // site that actually animates is counted.
-  const animating = (appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [])
-    .filter((call) => !/animateNewest: false/.test(call));
-  assert.equal(animating.length, 1);
+  // path that came back from the address was not drawn just now. So every call
+  // that actually animates must live in the compass handler (PER-51: owned,
+  // not counted across the shared file).
+  const compass = functionBody(appJs, 'buildCompass');
+  assertOwnedBy(/render\(\{(?![^}]*animateNewest:\s*false\b)[^}]*animateNewest[^}]*\}\)/, [compass],
+    'only the compass handler asks for the strand draw');
+  for (const name of ['playDemoStep', 'startDemo', 'endDemo', 'cancelDemo', 'stopDemo', 'maybeStartDemo', 'onVisitorAction']) {
+    assert.doesNotMatch(functionBody(appJs, name), /animateNewest|revealCompletion/,
+      `${name} asks for no animation of its own`);
+  }
   assert.doesNotMatch(functionBody(appJs, 'startDemo'), /animateNewest|revealCompletion/);
 });
 
@@ -183,32 +226,40 @@ test('first-visit startup is guarded, persisted and outside render', () => {
   // The bootstrap now restores the address first (PER-43) and offers the
   // walkthrough after it; maybeStartDemo declines when a hash is present, so a
   // shared link opens on its poem rather than on a demonstration.
-  assert.match(appJs, /buildCompass\(\);\s*\r?\nrenderRestoredPath\(\);/,
-    'the traced path in the address is restored first');
-  assert.match(appJs, /maybeStartDemo\(\);/, 'and the walkthrough is offered at startup');
+  // Read from the top-level bootstrap statements themselves (PER-51), not from
+  // which lines happen to sit next to each other.
+  const restoreAt = appJs.search(/^renderRestoredPath\(\);/m);
+  const offerAt = appJs.search(/^maybeStartDemo\(\);/m);
+  assert.ok(restoreAt > -1, 'the traced path in the address is restored at startup');
+  assert.ok(offerAt > -1, 'and the walkthrough is offered at startup');
+  assert.ok(restoreAt < offerAt, 'the traced path in the address is restored first');
   assert.doesNotMatch(functionBody(appJs, 'render'), /maybeStartDemo/);
-  assert.doesNotMatch(appJs.slice(appJs.indexOf('new ResizeObserver')), /startDemo/);
+  assert.doesNotMatch(resizeObserver(), /startDemo/);
 });
 
 test('Undo and Reset explicitly invalidate pending walkthrough work', () => {
+  // Each handler is read whole (PER-51): the claim is only that the walkthrough
+  // is cancelled before the selection changes and the page re-renders.
   assert.match(
-    appJs,
-    /undoBtn\.addEventListener\('click', \(\) => \{[\s\S]*?if \(demoRunning\(\)\) cancelDemo\(\{ clearSelection: true \}\);[\s\S]*?selection\.undo\(\);\s*render\(\);\s*\}\);/,
-  );
-  assert.match(
-    appJs,
-    /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?cancelDemo\(\{ clearSelection: true \}\);[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
+    clickHandler('undoBtn'),
+    /if \(demoRunning\(\)\) cancelDemo\(\{ clearSelection: true \}\);[\s\S]*?selection\.undo\(\);\s*render\(\);/,
   );
   // PER-49: when Reset first asks, the walkthrough's scheduled steps stop but
   // its trace stays on the cloth; only the immediate or confirmed reset clears.
-  const resetHandler = appJs.match(/resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);/)[0];
+  const resetHandler = clickHandler('resetBtn');
+  assert.match(resetHandler, /cancelDemo\(\{ clearSelection: true \}\);[\s\S]*?selection\.reset\(\);\s*render\(\);/);
   const askAt = resetHandler.indexOf("=== 'confirm'");
   const confirmBranch = resetHandler.slice(askAt, resetHandler.indexOf('}', askAt));
   assert.match(confirmBranch, /cancelDemo\(\);/, 'asking stops the walkthrough');
   assert.doesNotMatch(confirmBranch, /clearSelection|selection\.reset/, 'but keeps its trace');
   assert.match(functionBody(appJs, 'startDemo'), /demoActive && generation === demoGeneration/,
     'scheduled callbacks are generation-guarded');
-  assert.doesNotMatch(appJs, /setInterval/);
+  // Paced by one generation-guarded timeout at a time, never a free-running
+  // interval — scoped to the walkthrough's own code (PER-51), not the whole app.
+  for (const name of ['playDemoStep', 'startDemo', 'endDemo', 'cancelDemo', 'stopDemo', 'maybeStartDemo', 'onVisitorAction']) {
+    assert.doesNotMatch(functionBody(appJs, name), /setInterval/, `${name} runs no interval`);
+  }
+  assert.doesNotMatch(demoJs, /setInterval/, 'nor does the demo module');
 });
 
 test('reduced motion reaches the end state synchronously', () => {

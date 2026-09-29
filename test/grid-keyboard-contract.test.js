@@ -58,6 +58,218 @@ function functionBody(source, name) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+// Every match of `pattern` in app.js lies inside one of `owners` — slices of
+// app.js such as a functionBody. Ownership rather than a count (PER-51): an
+// unrelated ticket's edit elsewhere in the shared file cannot trip it, but a
+// second writer of the thing this file owns still does.
+function assertOwnedBy(pattern, owners, message) {
+  const ranges = owners.map((slice) => {
+    const at = appJs.indexOf(slice);
+    assert.ok(at > -1, 'each owner is a slice of app.js');
+    return [at, at + slice.length];
+  });
+  const matches = [...appJs.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))];
+  assert.ok(matches.length > 0, `sanity: ${pattern} occurs in app.js`);
+  for (const m of matches) {
+    assert.ok(ranges.some(([from, to]) => m.index >= from && m.index < to),
+      `${message} (found ${JSON.stringify(m[0])} at offset ${m.index})`);
+  }
+}
+
+const escapeName = (n) => n.replace(/\$/g, '\\$');
+
+// Every name in `source` that holds what `seeds` hold, however many hops away:
+// `const a = gridEl; const b = a;` makes both a and b grid names. A name is an
+// alias only when its whole right-hand side is a known name or one of the
+// `direct` sources — `gridEl.parentElement` is not the grid, so the frame and
+// anything bound to it stay unrestricted. Resolved to a fixpoint, so the order
+// the bindings appear in the file does not matter.
+function aliasClosure(source, seeds, direct = []) {
+  const names = new Set(seeds);
+  for (let size = -1; size !== names.size;) {
+    size = names.size;
+    const known = String.raw`(?:${[...names].map(escapeName).join('|')})[ \t]*(?=[;,)}\r\n]|$)`;
+    const bind = new RegExp(String.raw`(?<![\w$.])([\w$]+)\s*=\s*(?:${[...direct, known].join('|')})`, 'g');
+    for (const m of source.matchAll(bind)) names.add(m[1]);
+  }
+  return [...names];
+}
+
+// #grid, however app.js names it.
+const GRID_SOURCE = [
+  String.raw`document\.getElementById\(\s*['"]grid['"]\s*\)`,
+  String.raw`document\.querySelector\(\s*['"]#grid['"]\s*\)`,
+];
+const gridNamesIn = (source) => aliasClosure(source, ['gridEl'], GRID_SOURCE);
+
+// Every keydown listener attached to #grid (or any alias of it) in `source`.
+function gridKeydownsIn(source) {
+  const onGrid = gridNamesIn(source).map(escapeName).join('|');
+  return [...source.matchAll(new RegExp(
+    String.raw`(?<![\w$.])(?:${onGrid})\s*\.\s*addEventListener\(\s*['"\x60]keydown['"\x60]\s*,\s*([^\r\n]*)`, 'g'))];
+}
+
+// A cell element, however app.js names it: buildGrid's loop variable, the
+// delegated handler's target, a lookup in cellEls — or any local bound to one
+// of those, such as positionCompass's `const cell = cellEls[…][…]`, and any
+// local bound to *that*, transitively. The aliases are read from app.js rather
+// than listed, so a DOM cell renamed to `cell` (or anything else, through any
+// chain of renames) cannot write a tabindex or take focus outside the owners
+// below. Names that never hold a cell element stay free for any other use.
+const CELL_SOURCE = [
+  String.raw`cellEls\[[^\]]+\]\[[^\]]+\]`,
+  String.raw`[^;\r\n]*closest\(\s*['"]\.cell['"]\s*\)`,
+  String.raw`[^;\r\n]*querySelector(?:All)?\([^)]*\.cell\b`,
+];
+function cellAliasesIn(source) {
+  // Iterating the cells themselves binds an alias too.
+  const loops = [...source.matchAll(
+    /\bfor\s*\(\s*(?:const|let|var)\s+([\w$]+)\s+of\s+(?:cellEls\.flat\(\)|[^)]*querySelectorAll\([^)]*\.cell\b)/g,
+  )].map((m) => m[1]);
+  return aliasClosure(source, ['el', 'cellEl', ...loops], CELL_SOURCE);
+}
+const cellRefOf = (aliases) =>
+  String.raw`(?:(?<![\w$])(?:${aliases.map(escapeName).join('|')})\b|cellEls\[[^\]]+\]\[[^\]]+\])`;
+const CELL_ALIASES = cellAliasesIn(appJs);
+const CELL_REF = cellRefOf(CELL_ALIASES);
+
+// --- what a document/window key listener may do to the grid ---------------
+//
+// Other tickets may listen for keys on the document (PER-49's Reset safeguard
+// does). What the grid needs from them is not silence but non-interference:
+// none may consume a key the grid owns. So the rule is deliberately narrow.
+// Each consumption — preventDefault, stopPropagation, stopImmediatePropagation,
+// returnValue = false, or handing the event to a function that does one of
+// those — must sit either inside an exact Escape-only branch,
+//   if (event.key === 'Escape') { … }    or    if (event.key === 'Escape') …;
+// or after an exact early exit in the same block,
+//   if (event.key !== 'Escape') return;
+// Nothing else counts as a guard — not a compound, chained or negated test,
+// not a list of keys, not a comparison inside a comment. It errs towards
+// rejecting, never towards letting a consumer through.
+const CONSUMES = /\.\s*(?:preventDefault|stopPropagation|stopImmediatePropagation)\s*\(|\.\s*returnValue\s*=\s*false/g;
+
+// Index just past the bracket closing the one at `open`; strings are skipped.
+function closeOf(text, open) {
+  const pairs = { '(': ')', '{': '}', '[': ']' };
+  const stack = [];
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      for (i++; i < text.length && text[i] !== ch; i++) if (text[i] === '\\') i++;
+    } else if (pairs[ch]) stack.push(pairs[ch]);
+    else if (ch === stack.at(-1)) {
+      stack.pop();
+      if (!stack.length) return i + 1;
+    }
+  }
+  return -1;
+}
+
+// `src` with every comment blanked to spaces (newlines kept, so offsets hold);
+// strings are left alone. A comparison written in a comment guards nothing.
+const withoutComments = (src) => src.replace(
+  /('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`)|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+  (m, str) => str ?? m.replace(/[^\n]/g, ' '),
+);
+
+// True if no closing brace between `from` and `to` leaves the block `from` is in.
+function sameBlock(text, from, to) {
+  let depth = 0;
+  for (let i = from; i < to; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}' && --depth < 0) return false;
+  }
+  return true;
+}
+
+// The handler's event parameter: `function f(event)`, `(event) =>`, `event =>`.
+const eventParam = (src) => src.match(/\(\s*([\w$]+)\s*\)\s*(?:=>|\{)|([\w$]+)\s*=>/)?.slice(1).find(Boolean);
+
+// True if position `at` in `src` only runs when `param`.key is 'Escape'.
+function escapeOnlyAt(src, param, at) {
+  const key = String.raw`${escapeName(param)}\s*\.\s*key`;
+  const esc = String.raw`(['"])Escape\1`;
+  // Inside `if (event.key === 'Escape')` — the whole condition, nothing more.
+  const branch = new RegExp(String.raw`\bif\s*\(\s*${key}\s*===\s*${esc}\s*\)`, 'g');
+  for (const m of src.matchAll(branch)) {
+    const close = m.index + m[0].length;
+    if (close > at) break;
+    const block = src.slice(close).match(/^\s*\{/);
+    if (block) {
+      if (at < closeOf(src, close + block[0].length - 1)) return true;
+    } else if (!/[;{}]/.test(src.slice(close, at))) return true; // the one-statement consequent
+  }
+  // After `if (event.key !== 'Escape') return;` as a statement of its own, in a
+  // block still open at `at`.
+  const exit = new RegExp(String.raw`(?:^|[;{}])\s*if\s*\(\s*${key}\s*!==\s*${esc}\s*\)\s*return\s*;`, 'g');
+  for (const m of src.matchAll(exit)) {
+    const end = m.index + m[0].length;
+    if (end <= at && sameBlock(src, end, at)) return true;
+  }
+  return false;
+}
+
+// Offsets in `src` where the event may be consumed: directly, or by passing it
+// to a function (found through `lookup`) that consumes it, however deep.
+function consumptionsIn(src, lookup, seen = new Set()) {
+  const at = [...src.matchAll(CONSUMES)].map((m) => m.index);
+  const param = eventParam(src);
+  if (param) {
+    // Calls only: a `function name(event)` header declares, it does not forward.
+    const calls = new RegExp(String.raw`(?<![\w$.]|\bfunction\s+)([\w$]+)\s*\(([^()]*)\)`, 'g');
+    for (const m of src.matchAll(calls)) {
+      if (!new RegExp(String.raw`(?<![\w$.])${escapeName(param)}\b`).test(m[2]) || seen.has(m[1])) continue;
+      const callee = lookup(m[1]);
+      if (callee && consumptionsIn(withoutComments(callee), lookup, new Set([...seen, m[1]])).length) at.push(m.index);
+    }
+  }
+  return at;
+}
+
+// Why the document/window key handler `src` could take a key from the grid;
+// an empty list when it cannot.
+function keyInterference(src, lookup = () => null) {
+  const code = withoutComments(src);
+  const problems = [];
+  if (/\b(?:roving|setTabStop|focusCell)\b|\.tabIndex\b/.test(code)) problems.push('it reaches into the grid’s tab stop');
+  const param = eventParam(code);
+  for (const at of consumptionsIn(code, lookup)) {
+    if (!param || !escapeOnlyAt(code, param, at)) {
+      problems.push(`it can consume a key outside an Escape-only branch (at ${JSON.stringify(code.slice(at, at + 40))})`);
+    }
+  }
+  return problems;
+}
+
+// The document, the window and globalThis, however app.js names them:
+// `const page = document; const renamed = page;` makes both page and renamed
+// global. Only whole-value aliases count, so `document.body` and anything bound
+// to it — like any other element — stay unrestricted.
+const globalNamesIn = (source) => aliasClosure(source, ['document', 'window', 'globalThis'],
+  [String.raw`(?:window|globalThis)\s*\.\s*document[ \t]*(?=[;,)}\r\n]|$)`]);
+const globalRefIn = (source) =>
+  String.raw`(?<![\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:${globalNamesIn(source).map(escapeName).join('|')})`;
+
+// Each document/window/globalThis key listener in `source`, with its handler's text.
+function globalKeyListenersIn(source) {
+  const listeners = [];
+  const attach = new RegExp(String.raw`${globalRefIn(source)}\s*\.\s*addEventListener\(\s*['"\x60]key\w+['"\x60]\s*,\s*`, 'g');
+  for (const m of source.matchAll(attach)) {
+    const rest = source.slice(m.index + m[0].length);
+    const named = rest.match(/^([\w$]+)\s*[,)]/);
+    const handler = named
+      ? lookupIn(source)(named[1])
+      : rest.slice(0, closeOf(source, source.indexOf('(', m.index)) - m.index - m[0].length);
+    listeners.push({ at: source.slice(m.index, source.indexOf('\n', m.index)).trim(), handler });
+  }
+  return listeners;
+}
+// A named function's whole declaration, header included (functionBody starts
+// one character in), or null when `source` does not declare it.
+const lookupIn = (source) => (name) =>
+  (source.includes(`function ${name}(`) ? `f${functionBody(source, name)}` : null);
+
 // --- what a key means ----------------------------------------------------
 
 test('grid-navigation: the four arrows are orthogonal, one cell, and nothing else', () => {
@@ -257,19 +469,39 @@ test('roving focus: a move reports exactly the two cells whose tabindex changes'
 // --- the wiring in app.js ------------------------------------------------
 
 test('src/app.js: one delegated keydown listener, on the grid and nowhere else', () => {
-  const listeners = appJs.match(/addEventListener\('key\w+'/g) ?? [];
-  // PER-49 adds exactly one more: the Reset safeguard's capture listener, which
-  // only drops a pending "Reset again" and never consumes a key.
-  assert.deepEqual(listeners, ["addEventListener('keydown'", "addEventListener('keydown'"],
-    'the grid listener plus the Reset safeguard, and nothing else');
+  // Scoped to what PER-48 owns (PER-51). Other tickets may listen for keys on
+  // the document — PER-49's Reset safeguard does — so they are not counted or
+  // listed. What the grid needs from each of them is checked on each one
+  // instead: none may take a key away from the grid.
+  assert.equal((appJs.match(/addEventListener\('keydown', onGridKeyDown\)/g) ?? []).length, 1,
+    'the grid key handler is attached exactly once');
   assert.match(appJs, /gridEl\.addEventListener\('keydown', onGridKeyDown\)/,
     'and it is delegated on #grid, not on 841 cells and not on the document');
-  const globalKeys = appJs.match(/(?:document|window)\.addEventListener\('key[^\r\n]*/g) ?? [];
-  assert.deepEqual(globalKeys.map((l) => l.trim()), ["document.addEventListener('keydown', onResetGuardAction, true);"],
-    'the only document key listener is the Reset safeguard');
-  const guard = functionBody(appJs, 'onResetGuardAction');
-  assert.doesNotMatch(guard, /preventDefault|stopPropagation|Arrow|roving/,
-    'which never takes a key away from the grid: arrow keys outside the grid are not ours');
+  // #grid itself has exactly one keydown listener, whatever it is called: a
+  // second handler on the grid — inline, named, or via a local alias of gridEl —
+  // would be a second owner of the grid's keys. The document/window listeners
+  // other tickets add are not on #grid and stay allowed (checked below).
+  // Aliases are resolved transitively (gridNamesIn), so a chain of renames
+  // cannot hide a second listener either.
+  const gridKeydowns = gridKeydownsIn(appJs);
+  assert.equal(gridKeydowns.length, 1, `#grid has exactly one keydown listener (found ${gridKeydowns.length})`);
+  assert.match(gridKeydowns[0][1], /^onGridKeyDown\)/, 'and it is onGridKeyDown');
+  const onGrid = gridNamesIn(appJs).map(escapeName).join('|');
+  assert.doesNotMatch(appJs, new RegExp(String.raw`(?<![\w$.])(?:${onGrid})\s*\.\s*onkeydown\s*=`),
+    'nor is one slipped in as an onkeydown property');
+  assert.doesNotMatch(functionBody(appJs, 'buildGrid'), /addEventListener\('key/,
+    'no cell gets a key listener of its own');
+  // The document and window may listen for keys, but never take one the grid
+  // owns (keyInterference, verified against synthetic handlers below).
+  assert.doesNotMatch(appJs, new RegExp(String.raw`${globalRefIn(appJs)}\s*\.\s*onkey\w+\s*=`),
+    'global key handlers go through addEventListener, where they are checked');
+  const globals = globalKeyListenersIn(appJs);
+  assert.ok(globals.some((l) => /onResetGuardAction/.test(l.at)), 'sanity: the Reset safeguard is seen');
+  for (const { at, handler } of globals) {
+    assert.ok(handler !== null, `${at}: its handler is readable, so it can be checked`);
+    assert.deepEqual(keyInterference(handler, lookupIn(appJs)), [],
+      `${at} never takes a key away from the grid`);
+  }
   const body = functionBody(appJs, 'onGridKeyDown');
   assert.match(body, /closest\('\.cell'\)/, 'the handler only answers to grid cells');
   assert.match(body, /gridEl\.contains\(cellEl\)/, 'and only to cells inside this grid');
@@ -282,6 +514,160 @@ test('src/app.js: one delegated keydown listener, on the grid and nowhere else',
   for (const forbidden of ['addLine', 'DIRECTIONS', 'lineCells', 'isPivot']) {
     assert.ok(!body.includes(forbidden), `the key handler does not touch ${forbidden}`);
   }
+});
+
+test('checker: grid and cell aliases are resolved through any chain of renames', () => {
+  const chained = [
+    "const gridEl = document.getElementById('grid');",
+    'const alias = gridEl;',
+    'const renamed = alias;',
+    'let again;',
+    'again = renamed;',
+    "gridEl.addEventListener('keydown', onGridKeyDown);",
+    "renamed.addEventListener('keydown', (event) => event.preventDefault());",
+  ].join('\n');
+  assert.deepEqual(gridNamesIn(chained).sort(), ['again', 'alias', 'gridEl', 'renamed']);
+  assert.equal(gridKeydownsIn(chained).length, 2, 'a listener on a two-hop alias is a second grid listener');
+  // Order in the file does not matter: the fixpoint finds a chain written backwards.
+  assert.ok(gridNamesIn('function f() { const b = a; }\nconst a = gridEl;').includes('b'));
+  // Names that are not the grid stay unrestricted, and so does anything bound to them.
+  const unrelated = [
+    'const frameEl = gridEl.parentElement;',
+    'const frame = frameEl;',
+    'const body = document.body;',
+    'const same = gridEl === other;',
+    "frame.addEventListener('keydown', onFrameKey);",
+  ].join('\n');
+  assert.deepEqual(gridNamesIn(unrelated), ['gridEl'], 'the frame, the body and a comparison are not the grid');
+  assert.equal(gridKeydownsIn(unrelated).length, 0);
+
+  const cells = [
+    'const cell = cellEls[r][c];',
+    'const a = cell;',
+    'const b = a;',
+    'const coords = cell.dataset;',
+    'const label = b.textContent;',
+  ].join('\n');
+  const aliases = cellAliasesIn(cells);
+  assert.ok(['cell', 'a', 'b'].every((n) => aliases.includes(n)), `chained cell aliases are seen (${aliases})`);
+  assert.ok(!aliases.includes('coords') && !aliases.includes('label'), 'values read off a cell are not cells');
+  const ref = cellRefOf(aliases);
+  assert.match('b.tabIndex = 0', new RegExp(String.raw`${ref}\.tabIndex\s*=`), 'a two-hop cell alias cannot write a tabindex');
+  assert.match('b.focus()', new RegExp(String.raw`${ref}\.focus\(`), 'nor take focus');
+  assert.doesNotMatch('label.focus()', new RegExp(String.raw`${ref}\.focus\(`), 'while unrelated names stay free');
+});
+
+test('checker: a global key handler may consume Escape only, behind an exact guard', () => {
+  const check = (src, extra = '') => keyInterference(src, lookupIn(`${src}\n${extra}`));
+  const passes = {
+    'the real Reset safeguard': functionBody(appJs, 'onResetGuardAction'),
+    'no consumption at all': 'function h(event) {\n  if (open) close();\n}',
+    'Escape guard, block': "function h(event) {\n  if (event.key === 'Escape') {\n    event.preventDefault();\n    close();\n  }\n}",
+    'Escape guard, one statement': "function h(event) {\n  if (event.key === 'Escape') event.preventDefault();\n}",
+    'Escape guard, double quotes': 'function h(event) {\n  if (event.key === "Escape") event.preventDefault();\n}',
+    'Escape guard, early exit': "function h(e) {\n  if (e.key !== 'Escape') return;\n  e.preventDefault();\n  e.stopPropagation();\n}",
+    'early exit inside the block it guards': "function h(event) {\n  if (open) {\n    if (event.key !== 'Escape') return;\n    event.preventDefault();\n  }\n}",
+    'Escape guard, nested in another branch': "function h(event) {\n  if (open) {\n    if (event.key === 'Escape') event.preventDefault();\n  }\n}",
+    'a comment beside a real guard': "function h(event) {\n  // close on Escape\n  if (event.key === 'Escape') event.preventDefault();\n}",
+    'inline Escape handler': "(event) => { if (event.key === 'Escape') event.preventDefault(); }",
+  };
+  for (const [name, src] of Object.entries(passes)) {
+    assert.deepEqual(check(src), [], `${name} passes`);
+  }
+  const fails = {
+    'unguarded preventDefault': 'function h(event) {\n  event.preventDefault();\n}',
+    'unguarded stopPropagation': 'function h(event) {\n  event.stopPropagation();\n}',
+    'stopImmediatePropagation': 'function h(event) {\n  event.stopImmediatePropagation();\n}',
+    'returnValue = false': 'function h(event) {\n  event.returnValue = false;\n}',
+    'a non-key guard': 'function h(event) {\n  if (open) event.preventDefault();\n}',
+    'a non-key early exit': 'function h(event) {\n  if (!open) return;\n  event.preventDefault();\n}',
+    'an arrow': "function h(event) {\n  if (event.key === 'ArrowDown') event.preventDefault();\n}",
+    'Enter': "function h(event) {\n  if (event.key === 'Enter') { event.preventDefault(); }\n}",
+    'Space': "function h(event) {\n  if (event.key === ' ') event.stopPropagation();\n}",
+    'Tab': "function h(event) {\n  if (event.key === 'Tab') event.preventDefault();\n}",
+    'Escape or Enter': "function h(event) {\n  if (event.key === 'Escape' || event.key === 'Enter') event.preventDefault();\n}",
+    'Escape or anything': "function h(event) {\n  if (event.key === 'Escape' || open) event.preventDefault();\n}",
+    'everything but Escape': "function h(event) {\n  if (event.key !== 'Escape') event.preventDefault();\n}",
+    'negated Escape': "function h(event) {\n  if (!(event.key === 'Escape')) event.preventDefault();\n}",
+    'early exit on Escape only': "function h(event) {\n  if (event.key === 'Escape') return;\n  event.preventDefault();\n}",
+    'early exit letting Space through': "function h(event) {\n  if (event.key !== 'Escape' && event.key !== ' ') return;\n  event.preventDefault();\n}",
+    'consumed after the guard': "function h(event) {\n  if (event.key === 'Escape') close();\n  event.preventDefault();\n}",
+    'consumed in the else': "function h(event) {\n  if (event.key === 'Escape') { close(); } else { event.preventDefault(); }\n}",
+    'early exit in a closed block': "function h(event) {\n  if (a) {\n    if (event.key !== 'Escape') return;\n  }\n  event.preventDefault();\n}",
+    'inline unguarded': '(event) => event.preventDefault()',
+    // Correct in spirit, but not the exact form: rejected rather than reasoned about.
+    'Escape and something else': "function h(event) {\n  if (open && event.key === 'Escape') event.preventDefault();\n}",
+    'early exit behind an unrelated test': "function h(event) {\n  if (!open || event.key !== 'Escape') return;\n  event.preventDefault();\n}",
+    'Escape via includes': "function h(event) {\n  if (['Escape', 'Esc'].includes(event.key)) event.preventDefault();\n}",
+    'Escape the other way round': "function h(event) {\n  if ('Escape' === event.key) event.preventDefault();\n}",
+    'loose equality': "function h(event) {\n  if (event.key == 'Escape') event.preventDefault();\n}",
+    // Fakes: the text of a guard without its meaning.
+    'Escape only in a line comment': "function h(event) {\n  if (open) // event.key === 'Escape'\n    event.preventDefault();\n}",
+    'Escape only in a block comment': "function h(event) {\n  if (open /* && event.key === 'Escape' */) event.preventDefault();\n}",
+    'a commented-out guard': "function h(event) {\n  // if (event.key === 'Escape')\n  event.preventDefault();\n}",
+    'a commented-out early exit': "function h(event) {\n  /* if (event.key !== 'Escape') return; */\n  event.preventDefault();\n}",
+    'chained equality': "function h(event) {\n  if (event.key === 'Escape' === false) event.preventDefault();\n}",
+    'chained early exit': "function h(event) {\n  if (event.key !== 'Escape' !== true) return;\n  event.preventDefault();\n}",
+    'early exit that is itself conditional': "function h(event) {\n  if (a) if (event.key !== 'Escape') return;\n  event.preventDefault();\n}",
+    'early exit in an else': "function h(event) {\n  if (a) close(); else if (event.key !== 'Escape') return;\n  event.preventDefault();\n}",
+    'early exit returning a value': "function h(event) {\n  if (event.key !== 'Escape') return false;\n  event.preventDefault();\n}",
+    'a guard on some other object': "function h(event) {\n  if (other.key === 'Escape') event.preventDefault();\n}",
+    'consumed after the Escape branch closes': "function h(event) {\n  if (event.key === 'Escape') { close(); }\n  event.stopPropagation();\n}",
+    'reaching into the tab stop': 'function h(event) {\n  roving.handleKey(event.key);\n}',
+  };
+  for (const [name, src] of Object.entries(fails)) {
+    assert.notDeepEqual(check(src), [], `${name} fails`);
+  }
+  // Handing the event to a helper that consumes it is consumption too.
+  const helper = 'function swallow(evt) {\n  evt.preventDefault();\n}';
+  assert.notDeepEqual(check('function h(event) {\n  swallow(event);\n}', helper), [], 'an unguarded forward fails');
+  assert.deepEqual(check("function h(event) {\n  if (event.key === 'Escape') swallow(event);\n}", helper), [],
+    'a forward behind an Escape guard passes');
+  assert.deepEqual(check('function h(event) {\n  log(event);\n}', 'function log(e) {\n  console.log(e.key);\n}'), [],
+    'a forward to a helper that consumes nothing passes');
+
+  // And the listener scan hands each global handler to the checker whole.
+  const page = [
+    "document.addEventListener('keydown', onEsc, true);",
+    "window.addEventListener('keyup', (event) => { if (event.key === 'Escape') event.preventDefault(); });",
+    "document.addEventListener('keydown', (event) => {\n  event.preventDefault();\n});",
+    "function onEsc(event) {\n  if (event.key === 'Escape') event.preventDefault();\n}",
+  ].join('\n');
+  const found = globalKeyListenersIn(page);
+  assert.equal(found.length, 3);
+  assert.deepEqual(found.map(({ handler }) => keyInterference(handler, lookupIn(page)).length > 0), [false, false, true],
+    'the named and inline Escape handlers pass; the multi-line inline consumer fails');
+});
+
+test('checker: global key listeners are found through any alias of document, window or globalThis', () => {
+  const page = [
+    'const page = document;',
+    'const renamed = page;',
+    'let host;',
+    'host = globalThis;',
+    'const win = window.document;',
+    "renamed.addEventListener('keydown', (event) => { event.preventDefault(); });",
+    "host.addEventListener('keyup', (event) => { event.stopPropagation(); });",
+    "win.addEventListener('keydown', (event) => { if (event.key === 'Escape') event.preventDefault(); });",
+    "globalThis.addEventListener('keydown', (event) => { event.preventDefault(); });",
+    // Not the document or the window: elements, and anything bound to them, are free.
+    'const body = document.body;',
+    'const panel = body;',
+    'const frame = gridEl.parentElement;',
+    "body.addEventListener('keydown', (event) => { event.preventDefault(); });",
+    "panel.addEventListener('keydown', (event) => { event.preventDefault(); });",
+    "frame.addEventListener('keydown', (event) => { event.preventDefault(); });",
+  ].join('\n');
+  const names = globalNamesIn(page);
+  assert.ok(['page', 'renamed', 'host', 'win'].every((n) => names.includes(n)), `transitive global aliases are seen (${names})`);
+  assert.ok(!['body', 'panel', 'frame'].some((n) => names.includes(n)), 'elements are not the document');
+  const found = globalKeyListenersIn(page);
+  assert.deepEqual(found.map(({ at }) => at.split('.')[0]), ['renamed', 'host', 'win', 'globalThis'],
+    'a listener on a two-hop alias of document is checked; ones on elements are not');
+  assert.deepEqual(found.map(({ handler }) => keyInterference(handler).length > 0), [true, true, false, true],
+    'and each is held to the Escape-only rule');
+  assert.equal(globalKeyListenersIn("window.document.addEventListener('keydown', onKey);").length, 1,
+    'the document reached through the window is still the document');
 });
 
 test('src/app.js: the compass keeps its own keyboard behaviour, untouched', () => {
@@ -314,10 +700,21 @@ test('src/app.js: buildGrid builds an ARIA grid of rows and gridcells', () => {
 });
 
 test('src/app.js: the tab stop has exactly one writer, and it is selection-independent', () => {
-  // Three writes in the whole app: buildGrid's initial stamp, and the pair
-  // setTabStop flips. If a fourth appears, the invariant has a second owner.
-  const writes = appJs.match(/\.tabIndex\s*=/g) ?? [];
-  assert.equal(writes.length, 3, 'only buildGrid and setTabStop write a cell tabindex');
+  // Every write to a cell's tabindex is buildGrid's initial stamp or the pair
+  // setTabStop flips. If one appears anywhere else, the invariant has a second
+  // owner. Asserted by where the writes live, not by counting the file (PER-51).
+  // Sanity for the alias scan: positionCompass's DOM cell is named `cell`, so
+  // that name is guarded too — `cell.tabIndex = …` elsewhere would be caught.
+  assert.ok(CELL_ALIASES.includes('cell'), `the alias scan sees positionCompass's cell (${CELL_ALIASES})`);
+  assert.match('cell.tabIndex = 0', new RegExp(String.raw`${CELL_REF}\.tabIndex\s*=`),
+    'an aliased DOM cell is a cell reference');
+  assert.match('cell.focus()', new RegExp(String.raw`${CELL_REF}\.focus\(`),
+    'for focus as well as for tabindex');
+  assertOwnedBy(new RegExp(String.raw`${CELL_REF}\.tabIndex\s*=`),
+    [functionBody(appJs, 'buildGrid'), functionBody(appJs, 'setTabStop')],
+    'only buildGrid and setTabStop write a cell tabindex');
+  assert.equal((functionBody(appJs, 'buildGrid').match(/\.tabIndex\s*=/g) ?? []).length, 1,
+    'buildGrid stamps each cell once');
   const setter = functionBody(appJs, 'setTabStop');
   assert.match(setter, /roving\.focusOn\(cell\)/, 'the module decides where the stop goes');
   assert.match(setter, /if \(!moved\) return;/, 'and nothing is written when it has not moved');
@@ -325,7 +722,9 @@ test('src/app.js: the tab stop has exactly one writer, and it is selection-indep
   assert.match(setter, /cellEls\[moved\.to\.row\]\[moved\.to\.col\]\.tabIndex = 0;/);
   // render / undo / reset must not touch it: the tab stop is where the reader
   // is, not a function of what has been selected.
-  for (const name of ['render', 'drawThread', 'positionCompass', 'previewLine']) {
+  // Nor may the grid's own key and click paths: they go through setTabStop.
+  for (const name of ['render', 'drawThread', 'positionCompass', 'previewLine',
+    'onGridKeyDown', 'onCellClick', 'focusCell']) {
     assert.doesNotMatch(functionBody(appJs, name), /tabIndex/, `${name} does not move the tab stop`);
   }
   // Both handlers may now also cancel a pending walkthrough (PER-46). What this
@@ -341,8 +740,14 @@ test('src/app.js: the tab stop has exactly one writer, and it is selection-indep
 });
 
 test('src/app.js: focus is moved only to follow an arrow key, never to announce', () => {
-  const calls = appJs.match(/\.focus\(\)/g) ?? [];
-  assert.equal(calls.length, 1, 'exactly one programmatic focus call in the app');
+  // Every programmatic focus of a cell is focusCell's — ownership, not a count
+  // of every .focus() in the shared file (PER-51) — and none of the grid's own
+  // paths reaches for focus any other way.
+  assertOwnedBy(new RegExp(String.raw`${CELL_REF}\.focus\(`), [functionBody(appJs, 'focusCell')],
+    'the only programmatic focus of a cell is the arrow-key move');
+  for (const name of ['onGridKeyDown', 'onCellClick', 'setTabStop', 'buildGrid', 'render', 'statusMessage']) {
+    assert.doesNotMatch(functionBody(appJs, name), /\.focus\(/, `${name} moves no focus`);
+  }
   const body = functionBody(appJs, 'focusCell');
   assert.match(body, /setTabStop\(cell\);\s*\n\s*cellEls\[cell\.row\]\[cell\.col\]\.focus\(\)/,
     'the one call is the arrow-key move, and it moves the tab stop with it');
@@ -383,7 +788,8 @@ test('src/app.js: click and Enter/Space run the same start-selection logic', () 
   const body = functionBody(appJs, 'onCellClick');
   // The event is threaded through so a real click can take over a running
   // walkthrough (PER-46); the demo's own synthetic clicks are untrusted.
-  assert.match(appJs, /el\.addEventListener\('click', \(event\) => onCellClick\(r, c, event\)\)/, 'click calls it');
+  assert.match(functionBody(appJs, 'buildGrid'), /el\.addEventListener\('click', \(event\) => onCellClick\(r, c, event\)\)/,
+    'click calls it');
   assert.match(functionBody(appJs, 'onGridKeyDown'),
     /if \(action\.type === 'activate'\) onCellClick\(action\.cell\.row, action\.cell\.col\)/,
     'Enter/Space call the very same function — no second copy of the rule');
@@ -394,18 +800,22 @@ test('src/app.js: click and Enter/Space run the same start-selection logic', () 
     'and the start still goes through selection.pickStart');
   assert.match(body, /else announce\(statusMessage\(\)\)/,
     'an existing start is not replaced; the status says where to go instead');
-  assert.equal((appJs.match(/pickStart/g) ?? []).length, 1, 'one pickStart call site in the app');
+  assertOwnedBy(/pickStart/, [body], 'one pickStart call site in the app, and it is onCellClick');
 });
 
 test('src/app.js: #progress is still the one announcement surface', () => {
   assert.match(html, /<span id="progress" class="progress" role="status">/, 'the live region is unchanged');
-  assert.equal((appJs.match(/progressEl\.textContent/g) ?? []).length, 1, 'written in exactly one place');
+  assertOwnedBy(/progressEl\.textContent/, [functionBody(appJs, 'announce')], 'written in exactly one place');
   assert.match(functionBody(appJs, 'announce'), /progressEl\.textContent = text;/, 'and that place is announce()');
   assert.match(functionBody(appJs, 'render'), /announce\(statusMessage\(\)\)/, 'render announces the state');
   // No second live region was introduced for the keyboard.
   assert.equal((html.match(/role="status"/g) ?? []).length, 1, 'still one role="status" on the page');
   assert.doesNotMatch(html, /aria-live/, 'and no extra aria-live region');
-  assert.doesNotMatch(appJs, /setAttribute\('aria-live'/, 'nor one added from script');
+  // Nor one added from script by the keyboard work — scoped to the functions
+  // PER-48 wrote rather than swept across the shared file (PER-51).
+  for (const name of ['buildGrid', 'setTabStop', 'focusCell', 'onGridKeyDown', 'onCellClick', 'announce']) {
+    assert.doesNotMatch(functionBody(appJs, name), /aria-live|'role', 'status'/, `${name} adds no live region`);
+  }
 });
 
 test('the pure modules carry no URL, hash or history behaviour', () => {

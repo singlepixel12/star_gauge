@@ -2,6 +2,20 @@
 // Guards the output hierarchy / state contract introduced by PER-9: the poem is
 // the payoff and comes first, the prompt box is read-only, and the English area
 // stays editable with its "translation is off in v1" helper wired to LLM_ENABLED.
+//
+// PER-51: app.js is shared by nearly every ticket, so the source assertions
+// below are scoped to what the output owns — render's reading of the trace,
+// the prompt, the regions state — and say where a thing lives rather than how
+// many times the whole file mentions it.
+//
+// WHAT THIS FILE CANNOT COVER — needs manual validation, served over HTTP.
+// There is no DOM or layout engine here (no jsdom, no playwright —
+// deliberately: vanilla site, no build step, no dependencies):
+//   * that the poem card really reads first on a phone as on a desktop, and
+//     that a long reading scrolls inside its <pre> rather than being clipped;
+//   * that the prompt box cannot be typed into while the English area can;
+//   * that the Translate button stays disabled and no network request is ever
+//     made while LLM_ENABLED is false.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,6 +23,33 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
+
+// Body of a top-level `function name(` declaration, up to the next one — the
+// same source-contract technique the sibling suites use.
+function functionBody(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start > -1, `expected a function ${name}`);
+  const rest = source.slice(start + 1);
+  const next = rest.search(/\n(?:async )?function /);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+// Every match of `pattern` in app.js lies inside one of `owners` — slices of
+// app.js. Ownership rather than a count (PER-51): an unrelated edit elsewhere
+// in the shared file cannot trip it, but a second owner still does.
+function assertOwnedBy(pattern, owners, message) {
+  const ranges = owners.map((slice) => {
+    const at = appJs.indexOf(slice);
+    assert.ok(at > -1, 'each owner is a slice of app.js');
+    return [at, at + slice.length];
+  });
+  const matches = [...appJs.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))];
+  assert.ok(matches.length > 0, `sanity: ${pattern} occurs in app.js`);
+  for (const m of matches) {
+    assert.ok(ranges.some(([from, to]) => m.index >= from && m.index < to),
+      `${message} (found ${JSON.stringify(m[0])} at offset ${m.index})`);
+  }
+}
 
 // The one .poem-chinese card, opening tag through its matching close.
 function poemCard() {
@@ -161,16 +202,21 @@ test('styles.css: no breakpoint hides, covers or truncates either reading', () =
 });
 
 test('src/app.js: the reverse reading is derived, and the prompt gets forward only', () => {
-  assert.match(appJs, /import \{ reverseReading \} from '\.\/readings\.js';/, 'from the pure module');
-  // The trace is read once, so the two readings and the prompt cannot drift.
-  assert.equal((appJs.match(/selection\.extractedLines\(\)/g) ?? []).length, 1);
-  assert.match(appJs, /const extractedLines = selection\.extractedLines\(\);/);
-  assert.match(appJs, /poemZhEl\.textContent = extractedLines\.join\('\\n'\);/);
-  assert.match(appJs, /poemReverseEl\.textContent = reverseReading\(extractedLines\)\.join\('\\n'\);/);
+  assert.match(appJs, /import \{[^}]*\breverseReading\b[^}]*\} from '\.\/readings\.js';/, 'from the pure module');
+  // The trace is read once in render, so the two readings and the prompt
+  // cannot drift. Scoped to render, which writes all three (PER-51): another
+  // feature reading the trace for its own purpose is not drift between these.
+  const render = functionBody(appJs, 'render');
+  assert.equal((render.match(/selection\.extractedLines\(\)/g) ?? []).length, 1);
+  assert.match(render, /const extractedLines = selection\.extractedLines\(\);/);
+  assert.match(render, /poemZhEl\.textContent = extractedLines\.join\('\\n'\);/);
+  assert.match(render, /poemReverseEl\.textContent = reverseReading\(extractedLines\)\.join\('\\n'\);/);
   // Translation still works from the poem as traced — PER-45 changes no prompt
-  // semantics, so reverseReading() must never reach buildPrompt().
-  assert.equal((appJs.match(/buildPrompt\(/g) ?? []).length, 1);
-  assert.match(appJs, /buildPrompt\(extractedLines\)/);
+  // semantics, so reverseReading() must never reach buildPrompt(). The prompt
+  // is built in render alone, from the forward lines.
+  assertOwnedBy(/buildPrompt\(/, [render], 'the prompt is built in one place');
+  assert.equal((render.match(/buildPrompt\(/g) ?? []).length, 1);
+  assert.match(render, /buildPrompt\(extractedLines\)/);
   assert.doesNotMatch(appJs, /buildPrompt\([^)]*reverse/i);
 });
 
@@ -196,7 +242,8 @@ test('src/app.js: neither reading depends on the Colour-regions state', () => {
     /function applyRegionsState\(\{ on, ariaPressed \}\) \{\s*regionsToggle\.setAttribute\('aria-pressed', ariaPressed\);\s*document\.body\.classList\.toggle\('show-regions', on\);\s*\}/,
     'applyRegionsState writes only the attribute and the body class',
   );
-  assert.equal((appJs.match(/'show-regions'/g) ?? []).length, 1, 'one place writes the tint state');
+  const apply = appJs.match(/function applyRegionsState\([^)]*\) \{[\s\S]*?\r?\n\}/)[0];
+  assertOwnedBy(/'show-regions'/, [apply], 'one place writes the tint state');
   // And no .show-regions rule reaches into either poem to hide or recolour it.
   for (const m of css.matchAll(/\.show-regions[^{}]*\{[^}]*\}/g)) {
     assert.doesNotMatch(m[0], /\.poem\b|#poem-zh|\.reading\b/, `regions rule touches a reading: ${m[0]}`);
