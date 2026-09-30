@@ -8,20 +8,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { appJs, functionBody } from '../test-support/app-source.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const exportJs = readFileSync(new URL('../src/export-image.js', import.meta.url), 'utf8');
-
-// Body of a top-level function declaration, through the next top-level
-// function — the same source-contract technique the sibling suites use.
-function functionBody(source, name) {
-  const start = source.search(new RegExp(`(?:async )?function ${name}\\(`));
-  assert.ok(start > -1, `expected a function ${name}`);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/\n(?:async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
 
 const withoutComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 

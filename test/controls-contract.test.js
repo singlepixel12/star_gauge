@@ -30,6 +30,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { appJs, assertOwnedBy } from '../test-support/app-source.js';
 
 import {
   nextRegionsState, isPressed, pressedAttr,
@@ -38,7 +39,6 @@ import {
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
 // --- tiny HTML helpers ---------------------------------------------------
 
@@ -323,23 +323,6 @@ function appFunction(name) {
   const rest = appJs.slice(start + 1);
   const next = rest.search(/\n(?:async )?function /);
   return next === -1 ? rest : rest.slice(0, next);
-}
-
-// Every match of `pattern` in app.js lies inside one of `owners` — slices of
-// app.js. Ownership rather than a count (PER-51): an unrelated edit elsewhere
-// in the shared file cannot trip it, but a second writer still does.
-function assertOwnedBy(pattern, owners, message) {
-  const ranges = owners.map((slice) => {
-    const at = appJs.indexOf(slice);
-    assert.ok(at > -1, 'each owner is a slice of app.js');
-    return [at, at + slice.length];
-  });
-  const matches = [...appJs.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))];
-  assert.ok(matches.length > 0, `sanity: ${pattern} occurs in app.js`);
-  for (const m of matches) {
-    assert.ok(ranges.some(([from, to]) => m.index >= from && m.index < to),
-      `${message} (found ${JSON.stringify(m[0])} at offset ${m.index})`);
-  }
 }
 
 test('src/app.js: Reset asks through the tested decision, before touching the selection', () => {

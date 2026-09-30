@@ -14,26 +14,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { appJs, functionBody } from '../test-support/app-source.js';
 
 import { GRID } from '../src/grid-data.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 
 // Whole element, opening tag through closing tag, e.g. <div id="grid" ...>...</div>
 function element(source, id) {
   const m = source.match(new RegExp(`<([a-z]+)\\s[^>]*id="${id}"[\\s\\S]*?<\\/\\1>`, 'i'));
   assert.ok(m, `expected an element with id="${id}"`);
   return m[0];
-}
-
-// Body of a top-level `function name(` declaration, up to the next one.
-function functionBody(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start > -1, `expected a function ${name}`);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/\n(?:async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
 }
 
 test('index.html: the document default is English', () => {
