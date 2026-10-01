@@ -2,29 +2,33 @@
 // Guards PER-22's completion transition. The application is a dependency-free
 // browser module, so these tests exercise the pure milestone predicate and the
 // source/CSS contracts that keep the DOM behavior one-shot and non-obscuring.
+//
+// PER-51: app.js is shared by nearly every ticket, so the source assertions
+// are scoped to what PER-22 (and PER-45's reverse reading) own, and say where a
+// thing lives rather than how many times the whole file mentions it.
+//
+// WHAT THIS FILE CANNOT COVER — needs manual validation.
+// There is no DOM, layout engine or animation clock here (no jsdom, no
+// playwright — deliberately: vanilla site, no build step, no dependencies).
+// These remain manual checks, served over HTTP:
+//   * that the poem card really scrolls into view once, centred, after the
+//     fourth strand has finished drawing — and not before, nor twice;
+//   * that the warmed frame covers neither reading and shifts nothing, on a
+//     phone as on a desktop;
+//   * that a resize or orientation change mid-draw drops the pending reveal
+//     rather than scrolling later, and that reduced motion reveals at once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { appJs, functionBody, assertOwnedBy, clickHandler } from '../test-support/app-source.js';
 
 import { isQuatrainMilestone } from '../src/milestone.js';
 
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const milestoneJs = readFileSync(new URL('../src/milestone.js', import.meta.url), 'utf8');
 const cssClean = css.replace(/\/\*[\s\S]*?\*\//g, '');
-
-// Body of a top-level function declaration, through the next top-level
-// function. This is the same intentionally small source-contract technique
-// used by thread-animation.test.js.
-function functionBody(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start > -1, `expected a function ${name}`);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/\n(?:async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
 
 function cssRule(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -82,11 +86,10 @@ test('only a successful compass commit requests the completion reveal', () => {
     'completion and newest-strand intents travel together from the commit path',
   );
   // A path restored from the address (PER-43) names animateNewest as well, but
-  // only to turn it off, so what is counted is the sites that ask for the
-  // strand draw rather than the sites that mention it.
-  const animationRequests = (appJs.match(/render\(\{[^}]*animateNewest[^}]*\}\)/g) ?? [])
-    .filter((call) => !/animateNewest:\s*false\b/.test(call));
-  assert.equal(animationRequests.length, 1, 'no other path requests the newest-strand animation');
+  // only to turn it off. So every render call that asks for the strand draw
+  // must live in the compass commit path — owned, not counted (PER-51).
+  assertOwnedBy(/render\(\{(?![^}]*animateNewest:\s*false\b)[^}]*animateNewest[^}]*\}\)/, [compassHandler],
+    'no other path requests the newest-strand animation');
   // The restored render is the one place completion is asked for outside a live
   // commit, and it decides from the path itself rather than from a milestone.
   assert.match(
@@ -97,9 +100,11 @@ test('only a successful compass commit requests the completion reveal', () => {
 });
 
 test('completion is a separate render intent and owns the compass scroll suppression', () => {
+  // Both intents are named and off by default; any other option a later ticket
+  // gives render() is its own business (PER-51).
   assert.match(
     appJs,
-    /function render\(\{\s*animateNewest = false,\s*revealCompletion = false\s*\} = \{\}\)/,
+    /function render\(\{(?=[^}]*\banimateNewest = false\b)(?=[^}]*\brevealCompletion = false\b)[^}]*\} = \{\}\)/,
   );
   assert.match(
     renderBody,
@@ -124,7 +129,8 @@ test('normal completion waits for the newest strand, with a fallback and cancell
 });
 
 test('the poem scroll is one-shot, centered, and motion-aware', () => {
-  assert.equal((appJs.match(/poemCardEl\.scrollIntoView/g) ?? []).length, 1);
+  assertOwnedBy(/poemCardEl\.scrollIntoView/, [revealBody], 'the poem scroll belongs to the reveal alone');
+  assert.equal((revealBody.match(/poemCardEl\.scrollIntoView/g) ?? []).length, 1, 'and happens once there');
   assert.match(
     revealBody,
     /poemCardEl\.scrollIntoView\(\{ block: 'center', behavior: REDUCED_MOTION \? 'auto' : 'smooth' \}\)/,
@@ -142,19 +148,17 @@ test('non-completion rerenders and resize cancel pending completion work', () =>
   assert.match(observer, /clearPendingReveal\(\);/, 'resize drops a listener/timer for the replaced strand');
   assert.match(observer, /drawThread\(\);/);
   assert.match(observer, /positionCompass\(anchor, \{ scroll: false \}\)/);
-  assert.match(
-    appJs,
-    /undoBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.undo\(\);\s*render\(\);\s*\}\);/,
-    'undo cancels demo work and re-renders the thread in its final state',
-  );
-  assert.match(
-    appJs,
-    /resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?selection\.reset\(\);\s*render\(\);\s*\}\);/,
-    'reset cancels demo work and re-renders without animation',
-  );
+  // Each handler is read whole (PER-51): what it does before its render is not
+  // this file's concern, only that it ends in a plain, non-completing render.
+  for (const [name, call] of [['undoBtn', 'undo'], ['resetBtn', 'reset']]) {
+    const handler = clickHandler(name);
+    assert.match(handler, new RegExp(String.raw`selection\.${call}\(\);\s*render\(\);`),
+      `${call} re-renders the thread in its final state, ending any pending completion`);
+    assert.doesNotMatch(handler, /revealCompletion|animateNewest/, `${call} never asks for the reveal`);
+  }
   // PER-49: the first Reset press on a longer trace only asks, so a pending
   // completion is left alone; the confirmed reset's render() is what ends it.
-  const resetHandler = appJs.match(/resetBtn\.addEventListener\('click', \(\) => \{[\s\S]*?\r?\n\}\);/)[0];
+  const resetHandler = clickHandler('resetBtn');
   const askAt = resetHandler.indexOf("=== 'confirm'");
   assert.ok(askAt > -1, 'Reset asks before clearing a longer trace');
   const confirmBranch = resetHandler.slice(askAt, resetHandler.indexOf('}', askAt));
@@ -189,8 +193,15 @@ test('the reverse reading rides inside the one completion card and adds no secon
   assert.match(card[0], /id="poem-zh-reverse"/, 'and so is the reverse reading');
 
   // Nothing new moves, times out, covers or celebrates.
-  assert.equal((appJs.match(/\.scrollIntoView\(/g) ?? []).length, 2, 'only the compass and the poem scroll');
-  assert.equal((appJs.match(/classList\.add\('is-complete'\)/g) ?? []).length, 1);
+  // Scoped to the paths the completion moment owns (PER-51), rather than a
+  // count of every scroll in the shared file: the render that writes both
+  // readings and the reveal that follows it add no scroll beyond the poem's one.
+  for (const [name, body] of [['render', renderBody], ['startCompletionReveal', startRevealBody],
+    ['clearPendingReveal', clearPendingBody], ['endCompletionMoment', functionBody(appJs, 'endCompletionMoment')]]) {
+    assert.doesNotMatch(body, /scrollIntoView/, `${name} scrolls nothing`);
+  }
+  assert.equal((revealBody.match(/\.scrollIntoView\(/g) ?? []).length, 1, 'the reveal scrolls the poem card and nothing else');
+  assertOwnedBy(/classList\.add\('is-complete'\)/, [revealBody], 'only the reveal warms the card');
   assert.doesNotMatch(appJs, /poemReverseEl\.(?:scrollIntoView|classList)/);
   // The reverse <pre> is only ever written to, synchronously, in render(): it
   // is never handed to a timer or a listener of its own. Matched per statement,

@@ -30,6 +30,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { appJs, functionBody } from '../test-support/app-source.js';
 
 import { SHEEN_SPAN, GRID_GAP_PX, silkCoord, silkVars } from '../src/silk.js';
 import { SIZE, DIRECTIONS, isCenter } from '../src/geometry.js';
@@ -38,7 +39,6 @@ import { createSelection } from '../src/selection.js';
 import { GRID } from '../src/grid-data.js';
 
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const cssClean = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 // --- tiny CSS reader (same technique as controls-contract.test.js) -------
@@ -107,15 +107,6 @@ function mediaBody(query) {
 
 const root = rule(':root');
 const cell = rule('.cell');
-
-// Body of a top-level `function name(` declaration, up to the next one.
-function functionBody(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start > -1, `expected a function ${name}`);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/\n(?:async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
 
 // --- colour maths --------------------------------------------------------
 // Enough sRGB to answer one question: after the sheen is composited over a

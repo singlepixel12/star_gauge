@@ -41,6 +41,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { appJs, functionBody, assertOwnedBy } from '../test-support/app-source.js';
 
 import {
   ACTIVATION_KEYS, CENTER_NOTE, INITIAL_CELL,
@@ -51,20 +52,14 @@ import { createSelection } from '../src/selection.js';
 import { GRID } from '../src/grid-data.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 const cssClean = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
 const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
-// Body of a top-level `function name(` declaration, up to the next one.
-function functionBody(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start > -1, `expected a function ${name}`);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/\n(?:async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
+// A grid cell as app.js literally names one: buildGrid's `el`, positionCompass's
+// `cell`, or a `cellEls[…][…]` lookup. Literal names only — no alias resolution.
+const CELL = String.raw`(?:(?<![\w$.])(?:el|cell)|cellEls\[[^\]\r\n]+\]\[[^\]\r\n]+\])`;
 
 // --- what a key means ----------------------------------------------------
 
@@ -389,19 +384,43 @@ test('roving focus: a move reports exactly the two cells whose tabindex changes'
 // --- the wiring in app.js ------------------------------------------------
 
 test('src/app.js: one delegated keydown listener, on the grid and nowhere else', () => {
-  const listeners = appJs.match(/addEventListener\('key\w+'/g) ?? [];
-  // PER-49 adds exactly one more: the Reset safeguard's capture listener, which
-  // only drops a pending "Reset again" and never consumes a key.
-  assert.deepEqual(listeners, ["addEventListener('keydown'", "addEventListener('keydown'"],
-    'the grid listener plus the Reset safeguard, and nothing else');
+  // Scoped to what PER-48 owns (PER-51). Other tickets may listen for keys on
+  // the document — PER-49's Reset safeguard does — so they are not counted or
+  // listed. What the grid needs from each of them is checked on each one
+  // instead: none may take a key away from the grid.
+  assert.equal((appJs.match(/addEventListener\('keydown', onGridKeyDown\)/g) ?? []).length, 1,
+    'the grid key handler is attached exactly once');
   assert.match(appJs, /gridEl\.addEventListener\('keydown', onGridKeyDown\)/,
     'and it is delegated on #grid, not on 841 cells and not on the document');
-  const globalKeys = appJs.match(/(?:document|window)\.addEventListener\('key[^\r\n]*/g) ?? [];
-  assert.deepEqual(globalKeys.map((l) => l.trim()), ["document.addEventListener('keydown', onResetGuardAction, true);"],
-    'the only document key listener is the Reset safeguard');
-  const guard = functionBody(appJs, 'onResetGuardAction');
-  assert.doesNotMatch(guard, /preventDefault|stopPropagation|Arrow|roving/,
-    'which never takes a key away from the grid: arrow keys outside the grid are not ours');
+  // #grid itself has exactly one keydown listener: a second handler on gridEl
+  // would be a second owner of the grid's keys. The document/window listeners
+  // other tickets add are not on #grid and stay allowed (checked below).
+  const gridKeydowns = [...appJs.matchAll(/gridEl\.addEventListener\('keydown', ([^\r\n]*)/g)];
+  assert.equal(gridKeydowns.length, 1, `#grid has exactly one keydown listener (found ${gridKeydowns.length})`);
+  assert.match(gridKeydowns[0][1], /^onGridKeyDown\)/, 'and it is onGridKeyDown');
+  assert.doesNotMatch(appJs, /gridEl\.onkeydown\s*=/, 'nor is one slipped in as an onkeydown property');
+  assert.doesNotMatch(functionBody(appJs, 'buildGrid'), /addEventListener\('key/,
+    'no cell gets a key listener of its own');
+  // The document and window may listen for keys, but never take one the grid
+  // owns: each handler is named, so its body can be read, and that body neither
+  // consumes a key nor reaches into the grid's tab stop.
+  assert.doesNotMatch(appJs, /(?:document|window)\.onkey\w+\s*=/,
+    'global key handlers go through addEventListener, where they are checked');
+  const globals = [...appJs.matchAll(
+    /\b(?:document|window)\s*\.\s*addEventListener\s*\(\s*(['"`])key\w*\1\s*,\s*([^\r\n]*)/g)]
+    .map(([at, , rest]) => [at, rest]);
+  assert.ok(globals.some((m) => /^onResetGuardAction\b/.test(m[1])), 'sanity: the Reset safeguard is seen');
+  for (const [at, rest] of globals) {
+    const named = rest.match(/^([\w$]+)\s*[,)]/);
+    assert.ok(named, `${at.trim()}: its handler is a named function, so it can be checked`);
+    const handler = functionBody(appJs, named[1]);
+    for (const forbidden of ['preventDefault', 'stopPropagation', 'stopImmediatePropagation',
+      'roving', 'setTabStop', '.tabIndex']) {
+      assert.ok(!handler.includes(forbidden), `${named[1]} does not touch ${forbidden}`);
+    }
+    assert.doesNotMatch(handler, /\.returnValue\s*=\s*false/,
+      `${named[1]} does not consume a key through the legacy returnValue`);
+  }
   const body = functionBody(appJs, 'onGridKeyDown');
   assert.match(body, /closest\('\.cell'\)/, 'the handler only answers to grid cells');
   assert.match(body, /gridEl\.contains\(cellEl\)/, 'and only to cells inside this grid');
@@ -446,10 +465,16 @@ test('src/app.js: buildGrid builds an ARIA grid of rows and gridcells', () => {
 });
 
 test('src/app.js: the tab stop has exactly one writer, and it is selection-independent', () => {
-  // Three writes in the whole app: buildGrid's initial stamp, and the pair
-  // setTabStop flips. If a fourth appears, the invariant has a second owner.
-  const writes = appJs.match(/\.tabIndex\s*=/g) ?? [];
-  assert.equal(writes.length, 3, 'only buildGrid and setTabStop write a cell tabindex');
+  // Every write to a cell's tabindex is buildGrid's initial stamp or the pair
+  // setTabStop flips. If one appears anywhere else, the invariant has a second
+  // owner. Asserted by where the writes live, not by counting the file (PER-51).
+  // By property or by attribute: a setAttribute('tabindex', …) on a cell would
+  // be a second writer too.
+  assertOwnedBy(new RegExp(String.raw`${CELL}\s*\.\s*(?:tabIndex\s*=(?!=)|setAttribute\s*\(\s*['"\x60]tab[iI]ndex['"\x60])`),
+    [functionBody(appJs, 'buildGrid'), functionBody(appJs, 'setTabStop')],
+    'only buildGrid and setTabStop write a cell tabindex, by property or by attribute');
+  assert.equal((functionBody(appJs, 'buildGrid').match(/\.tabIndex\s*=/g) ?? []).length, 1,
+    'buildGrid stamps each cell once');
   const setter = functionBody(appJs, 'setTabStop');
   assert.match(setter, /roving\.focusOn\(cell\)/, 'the module decides where the stop goes');
   assert.match(setter, /if \(!moved\) return;/, 'and nothing is written when it has not moved');
@@ -457,7 +482,9 @@ test('src/app.js: the tab stop has exactly one writer, and it is selection-indep
   assert.match(setter, /cellEls\[moved\.to\.row\]\[moved\.to\.col\]\.tabIndex = 0;/);
   // render / undo / reset must not touch it: the tab stop is where the reader
   // is, not a function of what has been selected.
-  for (const name of ['render', 'drawThread', 'positionCompass', 'previewLine']) {
+  // Nor may the grid's own key and click paths: they go through setTabStop.
+  for (const name of ['render', 'drawThread', 'positionCompass', 'previewLine',
+    'onGridKeyDown', 'onCellClick', 'focusCell']) {
     assert.doesNotMatch(functionBody(appJs, name), /tabIndex/, `${name} does not move the tab stop`);
   }
   // Both handlers may now also cancel a pending walkthrough (PER-46). What this
@@ -473,8 +500,14 @@ test('src/app.js: the tab stop has exactly one writer, and it is selection-indep
 });
 
 test('src/app.js: focus is moved only to follow an arrow key, never to announce', () => {
-  const calls = appJs.match(/\.focus\(\)/g) ?? [];
-  assert.equal(calls.length, 1, 'exactly one programmatic focus call in the app');
+  // Every programmatic focus of a cell is focusCell's — ownership, not a count
+  // of every .focus() in the shared file (PER-51) — and none of the grid's own
+  // paths reaches for focus any other way.
+  assertOwnedBy(new RegExp(String.raw`${CELL}\s*\.\s*focus\s*\(`), [functionBody(appJs, 'focusCell')],
+    'the only programmatic focus of a cell is the arrow-key move');
+  for (const name of ['onGridKeyDown', 'onCellClick', 'setTabStop', 'buildGrid', 'render', 'statusMessage']) {
+    assert.doesNotMatch(functionBody(appJs, name), /\.focus\(/, `${name} moves no focus`);
+  }
   const body = functionBody(appJs, 'focusCell');
   assert.match(body, /setTabStop\(cell\);\s*\n\s*cellEls\[cell\.row\]\[cell\.col\]\.focus\(\)/,
     'the one call is the arrow-key move, and it moves the tab stop with it');
@@ -515,7 +548,8 @@ test('src/app.js: click and Enter/Space run the same start-selection logic', () 
   const body = functionBody(appJs, 'onCellClick');
   // The event is threaded through so a real click can take over a running
   // walkthrough (PER-46); the demo's own synthetic clicks are untrusted.
-  assert.match(appJs, /el\.addEventListener\('click', \(event\) => onCellClick\(r, c, event\)\)/, 'click calls it');
+  assert.match(functionBody(appJs, 'buildGrid'), /el\.addEventListener\('click', \(event\) => onCellClick\(r, c, event\)\)/,
+    'click calls it');
   assert.match(functionBody(appJs, 'onGridKeyDown'),
     /if \(action\.type === 'activate'\) onCellClick\(action\.cell\.row, action\.cell\.col\)/,
     'Enter/Space call the very same function — no second copy of the rule');
@@ -526,18 +560,22 @@ test('src/app.js: click and Enter/Space run the same start-selection logic', () 
     'and the start still goes through selection.pickStart');
   assert.match(body, /else announce\(statusMessage\(\)\)/,
     'an existing start is not replaced; the status says where to go instead');
-  assert.equal((appJs.match(/pickStart/g) ?? []).length, 1, 'one pickStart call site in the app');
+  assertOwnedBy(/pickStart/, [body], 'one pickStart call site in the app, and it is onCellClick');
 });
 
 test('src/app.js: #progress is still the one announcement surface', () => {
   assert.match(html, /<span id="progress" class="progress" role="status">/, 'the live region is unchanged');
-  assert.equal((appJs.match(/progressEl\.textContent/g) ?? []).length, 1, 'written in exactly one place');
+  assertOwnedBy(/progressEl\.textContent/, [functionBody(appJs, 'announce')], 'written in exactly one place');
   assert.match(functionBody(appJs, 'announce'), /progressEl\.textContent = text;/, 'and that place is announce()');
   assert.match(functionBody(appJs, 'render'), /announce\(statusMessage\(\)\)/, 'render announces the state');
   // No second live region was introduced for the keyboard.
   assert.equal((html.match(/role="status"/g) ?? []).length, 1, 'still one role="status" on the page');
   assert.doesNotMatch(html, /aria-live/, 'and no extra aria-live region');
-  assert.doesNotMatch(appJs, /setAttribute\('aria-live'/, 'nor one added from script');
+  // Nor one added from script by the keyboard work — scoped to the functions
+  // PER-48 wrote rather than swept across the shared file (PER-51).
+  for (const name of ['buildGrid', 'setTabStop', 'focusCell', 'onGridKeyDown', 'onCellClick', 'announce']) {
+    assert.doesNotMatch(functionBody(appJs, name), /aria-live|'role', 'status'/, `${name} adds no live region`);
+  }
 });
 
 test('the pure modules carry no URL, hash or history behaviour', () => {

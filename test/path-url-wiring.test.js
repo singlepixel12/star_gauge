@@ -5,24 +5,29 @@
 // source-contract technique as thread-animation.test.js and
 // completion-moment.test.js, plus a pure round trip through the two functions
 // the app actually calls.
+//
+// PER-51: app.js is shared by nearly every ticket, so the wiring assertions
+// below are scoped to what PER-43 owns — the seeding, the save point, the
+// rewrite, the replay — and say where a thing lives rather than how many times
+// the whole file mentions it.
+//
+// WHAT THIS FILE CANNOT COVER — needs manual validation, served over HTTP.
+// There is no browser history, address bar or DOM here (no jsdom, no
+// playwright — deliberately: vanilla site, no build step, no dependencies):
+//   * that a copied address really reopens on the same trace in a fresh tab,
+//     and that Back/Forward and a hand-edited fragment replay as expected;
+//   * that tracing never adds history entries and never scrolls the page on
+//     the rewrite;
+//   * that an address shared from one browser opens the same poem in another.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { appJs, functionBody, assertOwnedBy, clickHandler } from '../test-support/app-source.js';
 
 import { GRID } from '../src/grid-data.js';
 import { createSelection } from '../src/selection.js';
 import { DIRECTIONS } from '../src/geometry.js';
 import { encodePath, decodePath } from '../src/path-codec.js';
 
-const appJs = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
-
-function functionBody(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.ok(start > -1, `expected a function ${name}`);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/\n(?:async )?function /);
-  return next === -1 ? rest : rest.slice(0, next);
-}
 
 const dir = (id) => DIRECTIONS.find((d) => d.id === id);
 
@@ -62,7 +67,15 @@ test('the first selection comes from the address, and can be replaced by it', ()
     /^let selection = decodePath\(location\.hash, GRID\);$/m,
     'the module opens on whatever path the fragment names',
   );
-  assert.doesNotMatch(appJs, /createSelection\(/, 'the empty state is the codec\'s job, not a second one here');
+  // Every assignment of the app's selection comes from the codec, so the empty
+  // state is decodePath's job, not a second one here. Checked per assignment
+  // rather than as a ban over the shared file (PER-51).
+  const assignments = [...appJs.matchAll(/^\s*(?:let\s+)?selection\s*=\s*([^;\r\n]*)/gm)];
+  assert.ok(assignments.length > 0, 'sanity: the app assigns its selection');
+  for (const [statement, value] of assignments) {
+    assert.match(value, /^decodePath\(location\.hash, GRID\)$/,
+      `the empty state is the codec's job, not a second one here: ${statement.trim()}`);
+  }
   // The seeding has to happen before anything is painted.
   assert.ok(
     appJs.indexOf('let selection = decodePath') < appJs.indexOf('renderRestoredPath();'),
@@ -79,16 +92,14 @@ test('every render ends by putting the current path in the address', () => {
   // Undo and Reset now also cancel a pending walkthrough (PER-46), so they are
   // no longer one-liners — but they still finish with the same bare render(),
   // which is the only thing this test cares about.
-  for (const name of ['undo', 'reset']) {
-    const from = appJs.indexOf(`selection.${name}();`);
-    assert.ok(from > -1, `${name} is called from a handler`);
-    assert.match(appJs.slice(from, from + 120), /render\(\);/, `${name} is followed by a bare render()`);
+  for (const [handler, name] of [['undoBtn', 'undo'], ['resetBtn', 'reset']]) {
+    assert.match(clickHandler(handler), new RegExp(String.raw`selection\.${name}\(\);\s*render\(\);`),
+      `${name} is followed by a bare render()`);
   }
-  assert.equal(
-    (appJs.match(/syncLocationHash\(\)/g) ?? []).length,
-    2,
-    'exactly one call site, plus the declaration',
-  );
+  // The one save point: every call of syncLocationHash lives in render, where
+  // it is made exactly once — owned, not counted across the file (PER-51).
+  assertOwnedBy(/(?<!function )syncLocationHash\(\)/, [renderBody], 'render is the only call site');
+  assert.equal((renderBody.match(/syncLocationHash\(\)/g) ?? []).length, 1, 'and calls it exactly once');
 });
 
 test('the address is rewritten in place, carrying only coordinates and ids', () => {
@@ -101,7 +112,10 @@ test('the address is rewritten in place, carrying only coordinates and ids', () 
   assert.match(body, /if \(fragment === location\.hash\) return;/, 'an unchanged path writes nothing');
   // Nothing of the cloth itself may reach the URL.
   assert.doesNotMatch(body, /extractedLines|poemZhEl|GRID/, 'no character of the poem is ever stored');
-  assert.equal((appJs.match(/history\./g) ?? []).length, 1, 'this is the only place the app touches history');
+  // Owned: every history write, replaceState or pushState, lives here — and
+  // pushState is barred here above, so it appears nowhere in the app.
+  assertOwnedBy(/\bhistory\s*\.\s*(?:replaceState|pushState)\b/, [body],
+    'syncLocationHash is the only place the app writes history');
 });
 
 test('a fragment arriving later replaces the cloth through the same replay', () => {
@@ -125,15 +139,46 @@ test('asking to reset leaves the address alone; only the confirmed reset rewrite
 });
 
 test('a resize redraws without touching the address', () => {
-  const observer = appJs.slice(appJs.indexOf('new ResizeObserver('));
+  // The observer callback alone, not everything after it in the file (PER-51).
+  const observer = appJs.match(/new ResizeObserver\(\(\) => \{[\s\S]*?\}\)\.observe\(gridEl\)/)?.[0];
+  assert.ok(observer, 'the grid resize observer is present');
   assert.match(observer, /drawThread\(\);/, 're-measure and redraw only');
   assert.doesNotMatch(observer, /render\(|syncLocationHash|history\./, 'and no save, no scroll, no rewrite');
 });
 
-test('app.js reads the address only through the codec and these two places', () => {
-  const reads = appJs.match(/location\.hash/g) ?? [];
-  assert.equal(reads.length, 4,
-    'seeding, the hashchange replay, the unchanged-path check, and the walkthrough declining on a shared link');
+test('app.js decodes the address only through the codec, and never parses it by hand', () => {
+  // What PER-43 owns is the fragment's *format*, so the claim is about who may
+  // interpret it, not how many times the file mentions it (PER-51). The path is
+  // read out of the address only by the codec — at seeding and on hashchange —
+  // and the address is written only by syncLocationHash.
+  const decodes = appJs.match(/decodePath\(location\.hash, GRID\)/g) ?? [];
+  assert.ok(decodes.length >= 2, 'seeding and the hashchange replay both go through the codec');
+  const hashchange = appJs.match(/addEventListener\('hashchange',[\s\S]*?\n\}\);/)[0];
+  assert.match(hashchange, /decodePath\(location\.hash, GRID\)/, 'the replay decodes through the codec');
+  // Every literal read of the fragment lives in one of the places that take it
+  // whole: the seeding, syncLocationHash's unchanged-path check, the walkthrough
+  // declining on a shared link, and the hashchange replay. A new reader
+  // elsewhere has to be added here deliberately. (Literal reads only — this
+  // does not follow the fragment through a copied local.)
+  assertOwnedBy(/location\.hash/, [
+    appJs.match(/^let selection = decodePath\(location\.hash, GRID\);$/m)[0],
+    functionBody(appJs, 'syncLocationHash'),
+    functionBody(appJs, 'maybeStartDemo'),
+    hashchange,
+  ], 'location.hash is read only by the seeding, syncLocationHash, maybeStartDemo and the hashchange replay');
+  // And none of those reads picks it apart by hand.
+  assert.doesNotMatch(appJs, /location\.hash\s*(?:\??\.|\[)/,
+    'the fragment is never parsed outside path-codec.js');
+  assert.doesNotMatch(appJs,
+    /\b(?:split|slice|substring|substr|match|replace|startsWith|indexOf)\([^)]*location\.hash/,
+    'nor handed to a string method');
+  // Nor reached around the literal: no destructured or bracketed copy.
+  assert.doesNotMatch(appJs, /\{[^}]*\bhash\b[^}]*\}\s*=\s*(?:window\.)?location\b|location\s*\[/,
+    'the fragment is not copied out of location by another spelling');
+  // syncLocationHash writes through history.replaceState, which it alone owns
+  // (above); a direct assignment anywhere would be a second writer.
+  assert.doesNotMatch(appJs, /location\.hash\s*=(?!=)|location\.(?:assign|replace)\(/,
+    'the address is written only by syncLocationHash');
   // Narrowed for PER-46. The claim was, and remains, that the URL is the only
   // memory *of the poem*: no trace, path or selection is ever written to device
   // storage. PER-46 stores one flag — whether this reader has already been shown
